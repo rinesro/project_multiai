@@ -1,6 +1,18 @@
-streamlit
-pandas
-joblib
-google-generativeai
-scikit-learn
-fuzzy
+# ============================================================
+# EnergiCerdas AI — Requirements
+# ============================================================
+
+# Web framework
+streamlit>=1.35.0
+
+# Data & numerik
+pandas>=2.2.0
+numpy>=1.26.0
+
+# Machine learning
+scikit-learn==1.8.0
+lightgbm>=4.3.0
+joblib>=1.4.0
+
+# Gen AI
+google-generativeai>=0.7.0
