@@ -1,211 +1,661 @@
 import streamlit as st
 import pandas as pd
 import joblib
-import torch
-from transformers import TextStreamer
-from unsloth import FastLanguageModel
+import google.generativeai as genai
 import warnings
 
 warnings.filterwarnings("ignore")
 
-# ==========================================
-# 1. KONFIGURASI HALAMAN
-# ==========================================
-st.set_page_config(page_title="EnergiCerdas AI (Local Edge)", page_icon="⚡", layout="wide")
+# ============================================================
+# REFERENSI REGULASI YANG DIGUNAKAN
+# ============================================================
+# [1] TARIF PLN
+#     Penetapan Penyesuaian Tarif Tenaga Listrik (Tariff Adjustment)
+#     Periode April–Juni 2026, PT PLN (Persero)
+#
+# [2] FAKTOR EMISI GRK
+#     Faktor Emisi GRK Sistem Ketenagalistrikan Tahun 2019
+#     Kementerian ESDM RI — Grid Jamali (DKI Jakarta)
+#     Operating Margin (OM) = 0,80 kgCO₂/kWh
+#
+# [3] PBJT TENAGA LISTRIK JAKARTA
+#     Perda DKI Jakarta No. 1 Tahun 2024
+#     Rumah tangga: 2,4%
+#     Sumber: https://dpp.jakarta.go.id/berita/sobat-pajak-ini-dia-
+#             segala-hal-tentang-pbjt-tenaga-listrik
+#
+# [4] REKENING MINIMUM / BIAYA BEBAN
+#     Rumus PLN: RM1 = 40 jam × daya (kVA) × tarif (Rp/kWh)
+#     Berlaku hanya pelanggan pascabayar.
+#
+# [5] IKE RUMAH TANGGA
+#     Pedoman Konservasi Energi Depdiknas RI
+#     Satuan: kWh/m²/bulan, dibedakan ber-AC dan tidak ber-AC.
+# ============================================================
 
-# ==========================================
-# 2. DATA INGESTION & VALIDATOR AGENT
-# ==========================================
-class DataIngestionValidatorAgent:
-    def __init__(self):
-        self.TARIF_KWH = 1699.53
-        self.PPJ = 0.03
-        self.BIAYA_BEBAN = 47500
-        self.FAKTOR_EMISI = 0.87
-        self.BATAS_TOLERANSI = 0.15
+# ── Import modul internal ─────────────────────────────────────────────────────
+from fuzzy.ike_profiler      import profil_ike
+from models.dsm_classifier   import DSMClassifier
+from models.knn_recommender  import KNNRecommender
+from optimizer.brute_force   import optimasi
 
-    def proses_data(self, luas_rumah, penghuni, tagihan_asli, daftar_alat):
-        total_kwh = 0.0
-        alat_valid = []
-        for alat in daftar_alat:
-            kwh = (alat['watt'] * alat['jam'] * 30) / 1000
-            total_kwh += kwh
-            alat_valid.append({
-                'Kategori_Alat': alat['kategori'], 'Watt': alat['watt'],
-                'Jam_Per_Hari': alat['jam'], 'SKEM_Bintang': alat['skem'],
-                'kWh_Bulanan': kwh, 'Nama': alat['nama']
-            })
-        total_kwh += 50.0  # Base load
-        
-        ike = total_kwh / max(1.0, float(luas_rumah))
-        emisi = total_kwh * self.FAKTOR_EMISI
-        
-        rp_pemakaian = total_kwh * self.TARIF_KWH
-        estimasi_tagihan = rp_pemakaian + (rp_pemakaian * self.PPJ) + self.BIAYA_BEBAN
-        
-        selisih_pct = abs(tagihan_asli - estimasi_tagihan) / max(1.0, float(tagihan_asli))
-        is_anomali = selisih_pct > self.BATAS_TOLERANSI
-        
-        return {
-            "total_kwh": total_kwh, "estimasi_rp": estimasi_tagihan, "ike": ike,
-            "emisi": emisi, "is_anomali": is_anomali, "selisih_pct": selisih_pct,
-            "alat_valid": alat_valid
-        }
+# ============================================================
+# KONSTANTA REGULASI
+# ============================================================
 
-# ==========================================
-# 3. LOAD SEMUA MODEL (KLASIK & LLM)
-# ==========================================
-@st.cache_resource(show_spinner="Memuat Model Machine Learning Klasik...")
-def load_classic_models():
-    dt_macro = joblib.load("dt_macro_profiler.pkl")
-    dt_micro = joblib.load("dt_micro_appliance.pkl")
-    knn_model = joblib.load("knn_biaya_lingkungan_recommender.pkl")
-    scaler = joblib.load("knn_scaler.pkl")
-    df_role_model = pd.read_csv("database_role_model.csv")
-    return dt_macro, dt_micro, knn_model, scaler, df_role_model
+TARIF_PER_GOLONGAN = {
+    (0,      900):  1352.00,   # R-1/TR 900 VA RTM       [1]
+    (901,   2200):  1444.70,   # R-1/TR 1.300 & 2.200 VA [1]
+    (2201,  5500):  1699.53,   # R-2/TR 3.500–5.500 VA   [1]
+    (5501, 999999): 1699.53,   # R-3/TR 6.600 VA ke atas [1]
+}
+FAKTOR_EMISI_JAMALI_OM  = 0.80   # kgCO₂/kWh [2]
+PBJT_RUMAH_TANGGA       = 0.024  # 2,4% [3]
+BATAS_TOLERANSI_ANOMALI = 0.15   # 15%
 
-@st.cache_resource(show_spinner="Memuat Llama-3 AI Agent ke GPU (Harap Tunggu)...")
-def load_local_llm():
-    model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name = "llama3_energicerdas_lora", # Folder model lokalmu
-        max_seq_length = 2048,
-        dtype = None,
-        load_in_4bit = True,
-    )
-    FastLanguageModel.for_inference(model) # Mode inferensi agar cepat 2x lipat
-    return model, tokenizer
-
-try:
-    dt_macro, dt_micro, knn_model, scaler, df_role_model = load_classic_models()
-    llama_model, llama_tokenizer = load_local_llm()
-except Exception as e:
-    st.error(f"❌ Gagal memuat model. Error: {e}")
-    st.stop()
-
-# ==========================================
-# 4. FUNGSI ORCHESTRATOR & LOKAL LLM
-# ==========================================
-def dapatkan_rekomendasi_knn(luas, penghuni, list_intent):
-    user_baru = pd.DataFrame([{'Luas_Rumah_m2': luas, 'Jumlah_Penghuni': penghuni}])
-    user_baru_scaled = scaler.transform(user_baru)
-    jarak, indeks = knn_model.kneighbors(user_baru_scaled)
-    kandidat = df_role_model.iloc[indeks[0]].copy()
-    
-    biaya_min, biaya_max = kandidat['Total_Tagihan_Rp'].min(), kandidat['Total_Tagihan_Rp'].max()
-    kandidat['Skor_Biaya'] = (kandidat['Total_Tagihan_Rp'] - biaya_min) / (biaya_max - biaya_min + 1e-9)
-    emisi_min, emisi_max = kandidat['Emisi_CO2_kg'].min(), kandidat['Emisi_CO2_kg'].max()
-    kandidat['Skor_Lingkungan'] = (kandidat['Emisi_CO2_kg'] - emisi_min) / (emisi_max - emisi_min + 1e-9)
-    
-    kandidat['Skor_Akhir'] = 0.0
-    if 'Biaya' in list_intent: kandidat['Skor_Akhir'] += kandidat['Skor_Biaya']
-    if 'Lingkungan' in list_intent: kandidat['Skor_Akhir'] += kandidat['Skor_Lingkungan']
-    if not list_intent: kandidat['Skor_Akhir'] = kandidat['IKE_kWh_per_m2']
-
-    return kandidat.sort_values(by='Skor_Akhir', ascending=True).iloc[0]
-
-def generate_local_explainability(profil_makro, hasil_mikro, payload_dasar, knn_target, intent_user):
-    # Format Alpaca sesuai dengan saat kita melatih model
-    alpaca_prompt = """Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.
-
-### Instruction:
-{}
-
-### Input:
-{}
-
-### Response:
-"""
-    
-    # 1. Konversi format ke string teks persis seperti dataset latih
-    anomali_str = "ADA INDIKASI KEBOCORAN" if payload_dasar['is_anomali'] else "Normal"
-    perangkat_boros = [p['Nama'] for p in hasil_mikro if p['Status'] == 'Boros']
-    str_perangkat = ", ".join(perangkat_boros) if perangkat_boros else "Tidak ada"
-    fokus_str = intent_user[0] if intent_user else "Biaya"
-    
-    target_tagihan = int(knn_target['Total_Tagihan_Rp'])
-    target_emisi = round(knn_target['Emisi_CO2_kg'], 1)
-    
-    instruksi = "Kamu adalah konsultan energi pintar. Berikan penjelasan hasil analisis AI rumah tangga dan rekomendasi SDG dalam bahasa Indonesia yang ramah."
-    input_teks = f"Anomali: {anomali_str}. Profil Makro: {profil_makro}. Perangkat Boros: {str_perangkat}. Target KNN: Tagihan Rp{target_tagihan}, Emisi {target_emisi}kg. Fokus: {fokus_str}."
-    
-    # 2. Tokenisasi & Prediksi
-    inputs = llama_tokenizer([alpaca_prompt.format(instruksi, input_teks)], return_tensors="pt").to("cuda")
-    
-    # Generate Output (Maks 256 kata)
-    outputs = llama_model.generate(**inputs, max_new_tokens=256, use_cache=True, pad_token_id=llama_tokenizer.eos_token_id)
-    
-    # 3. Parsing Hasil (Membuang prompt instruksi dan hanya mengambil bagian Response)
-    decoded_output = llama_tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
-    hasil_akhir = decoded_output.split("### Response:\n")[-1].strip()
-    
-    return hasil_akhir
-
-# ==========================================
-# 5. ANTARMUKA STREAMLIT
-# ==========================================
-st.title("⚡ EnergiCerdas AI (100% Private & Offline)")
-st.markdown("Sistem Multi-AI menggunakan Custom Llama-3 8B. Data Anda tidak dikirim ke server pihak ketiga.")
-
-# Form Input seperti biasa
-st.header("1. Profil Rumah Tangga")
-c1, c2, c3 = st.columns(3)
-with c1: luas_rumah = st.number_input("Luas Bangunan (m²)", 20, 500, 45)
-with c2: penghuni = st.number_input("Jumlah Penghuni", 1, 15, 3)
-with c3: tagihan_asli = st.number_input("Tagihan Bulan Lalu (Rp)", 50000, 5000000, 600000)
-
-st.header("2. Preferensi Optimasi")
-intent_user = st.multiselect("Pilih fokus rekomendasi:", ["Biaya", "Lingkungan"], default=["Biaya"])
-
-st.header("3. Perangkat Listrik Utama")
-col_a, col_b = st.columns(2)
-with col_a:
-    ac_jam = st.number_input("Jam AC/Hari", 0.0, 24.0, 8.0)
-    ac_watt = st.number_input("Watt AC", 200, 2000, 400)
-    ac_skem = st.selectbox("Label SKEM AC", ["Bintang 4/5 (Inverter)", "Bintang 1 (Non-Inverter)"])
-    
-with col_b:
-    kulkas_watt = st.number_input("Watt Kulkas", 50, 500, 150)
-    tv_jam = st.number_input("Jam TV/PC", 0.0, 24.0, 4.0)
-    mcuci_jam = st.number_input("Jam Mesin Cuci", 0.0, 10.0, 1.5)
-
-daftar_perangkat = [
-    {"kategori": 1, "nama": "AC", "watt": ac_watt, "jam": ac_jam, "skem": 4 if "Inverter" in ac_skem else 1},
-    {"kategori": 2, "nama": "Kulkas", "watt": kulkas_watt, "jam": 24.0, "skem": 4},
-    {"kategori": 3, "nama": "TV/PC", "watt": 100, "jam": tv_jam, "skem": 0},
-    {"kategori": 4, "nama": "Mesin Cuci", "watt": 350, "jam": mcuci_jam, "skem": 4}
+KATEGORI_OPTIONS = [
+    "Pendingin",
+    "Pemanas",
+    "Laundry",
+    "Memasak",
+    "Hiburan/Elektronik",
+    "Pencahayaan",
+    "Pompa/Motor",
+    "Lainnya",
 ]
 
-# ==========================================
-# 6. EKSEKUSI PIPELINE
-# ==========================================
-if st.button("🚀 Mulai Analisis Multi-AI", type="primary", use_container_width=True):
-    with st.spinner("Mengorkestrasi Agen AI & Generasi Narasi (Llama-3)..."):
-        # Pipeline 1-4
-        agent = DataIngestionValidatorAgent()
-        payload = agent.proses_data(luas_rumah, penghuni, tagihan_asli, daftar_perangkat)
-        
-        df_mikro = pd.DataFrame(payload['alat_valid'])
-        prediksi_mikro = dt_micro.predict(df_mikro[['Kategori_Alat', 'Watt', 'Jam_Per_Hari', 'SKEM_Bintang', 'kWh_Bulanan']])
-        hasil_mikro = [{"Nama": a['Nama'], "Status": p} for a, p in zip(payload['alat_valid'], prediksi_mikro)]
-        
-        profil_makro = dt_macro.predict(pd.DataFrame([{'Luas_Rumah_m2': luas_rumah, 'Jumlah_Penghuni': penghuni, 'Total_Konsumsi_kWh': payload['total_kwh']}]))[0]
-        target_knn = dapatkan_rekomendasi_knn(luas_rumah, penghuni, intent_user)
-        
-        # Pipeline 5 (Local LLM)
-        narasi_akhir = generate_local_explainability(profil_makro, hasil_mikro, payload, target_knn, intent_user)
-        
-    # Render Hasil
+
+def get_tarif(daya_va: int) -> float:
+    for (lo, hi), tarif in TARIF_PER_GOLONGAN.items():
+        if lo <= daya_va <= hi:
+            return tarif
+    return 1699.53
+
+
+def hitung_biaya_beban(daya_va: int) -> float:
+    """RM1 = 40 jam × daya (kVA) × tarif [4]"""
+    return 40 * (daya_va / 1000.0) * get_tarif(daya_va)
+
+
+def hitung_emisi(total_kwh: float) -> dict:
+    """Hitung emisi CO₂ dari konsumsi listrik [2]"""
+    emisi_bulan = round(total_kwh * FAKTOR_EMISI_JAMALI_OM, 3)
+    return {
+        "emisi_kg_bulan": emisi_bulan,
+        "emisi_kg_tahun": round(emisi_bulan * 12, 2),
+        "faktor_emisi"  : FAKTOR_EMISI_JAMALI_OM,
+        "referensi"     : "Faktor Emisi GRK Grid Jamali OM, ESDM 2019",
+    }
+
+
+# ============================================================
+# DATA INGESTION & VALIDATOR AGENT
+# Deteksi anomali: if-else sederhana
+# Anomali = selisih estimasi vs tagihan asli > 15%
+# ============================================================
+
+class DataIngestionValidatorAgent:
+    def __init__(self, daya_va: int = 1300, is_prabayar: bool = False):
+        self.daya_va     = daya_va
+        self.is_prabayar = is_prabayar
+        self.TARIF_KWH   = get_tarif(daya_va)
+        self.PBJT        = PBJT_RUMAH_TANGGA
+        self.BIAYA_BEBAN = 0.0 if is_prabayar else hitung_biaya_beban(daya_va)
+
+    def proses_data(self, luas_rumah, penghuni, tagihan_asli, daftar_alat):
+        total_kwh  = 0.0
+        alat_valid = []
+
+        for alat in daftar_alat:
+            watt = alat['tegangan'] * alat['arus']
+            kwh  = (watt * alat['jam'] * 30) / 1000
+            total_kwh += kwh
+            alat_valid.append({
+                'nama'     : alat['nama'],
+                'kategori' : alat['kategori'],
+                'tegangan' : alat['tegangan'],
+                'arus'     : alat['arus'],
+                'watt'     : round(watt, 2),
+                'jam'      : alat['jam'],
+                'kwh_bulan': round(kwh, 3),
+            })
+
+        biaya_pemakaian  = total_kwh * self.TARIF_KWH
+        biaya_pbjt       = biaya_pemakaian * self.PBJT
+        estimasi_tagihan = biaya_pemakaian + biaya_pbjt + self.BIAYA_BEBAN
+        ike              = total_kwh / max(1.0, float(luas_rumah))
+        emisi_sebelum    = hitung_emisi(total_kwh)
+
+        # ── Deteksi anomali (if-else) ─────────────────────────────────────────
+        selisih_pct = (
+            abs(tagihan_asli - estimasi_tagihan) / max(1.0, float(tagihan_asli))
+        )
+        is_anomali = selisih_pct > BATAS_TOLERANSI_ANOMALI
+
+        return {
+            "total_kwh"      : round(total_kwh, 3),
+            "biaya_pemakaian": round(biaya_pemakaian, 0),
+            "biaya_pbjt"     : round(biaya_pbjt, 0),
+            "biaya_beban"    : round(self.BIAYA_BEBAN, 0),
+            "estimasi_rp"    : round(estimasi_tagihan, 0),
+            "ike"            : round(ike, 4),
+            "emisi_sebelum"  : emisi_sebelum,
+            "is_anomali"     : is_anomali,
+            "selisih_pct"    : round(selisih_pct * 100, 1),
+            "tarif_digunakan": self.TARIF_KWH,
+            "golongan_daya"  : f"{self.daya_va} VA",
+            "alat_valid"     : alat_valid,
+        }
+
+
+# ============================================================
+# LOAD MODEL
+# ============================================================
+
+@st.cache_resource(show_spinner="Memuat model DSM Classifier...")
+def load_dsm():
+    return DSMClassifier()
+
+@st.cache_resource(show_spinner="Memuat model KNN Recommender...")
+def load_knn():
+    return KNNRecommender()
+
+
+# ============================================================
+# GEN AI — GEMINI
+# ============================================================
+
+def generate_gemini_narasi(api_key       : str,
+                            label_ike     : str,
+                            payload       : dict,
+                            hasil_dsm     : list,
+                            knn_ctx       : dict,
+                            hasil_opt     : dict,
+                            intent_user   : list) -> str:
+    """
+    Menghasilkan narasi rekomendasi menggunakan Gemini.
+
+    Konteks yang dikirim ke Gemini:
+        - Status anomali tagihan
+        - Profil IKE (zona efisiensi)
+        - Ringkasan peralatan per label DSM
+        - Hasil optimasi brute force (langkah + penghematan + emisi)
+        - Target role model KNN
+        - Fokus user (Biaya / Lingkungan)
+    """
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel("gemini-2.5-flash")
+
+    # Susun ringkasan peralatan
+    fleksibel     = [a for a in hasil_dsm if a['label_dsm'] == 'Fleksibel']
+    tdk_fleksibel = [a for a in hasil_dsm if a['label_dsm'] == 'Tidak Fleksibel']
+
+    str_fleksibel = ", ".join(
+        f"{a['nama']} ({a['watt']:.0f}W, {a['jam']}j/hari)"
+        for a in fleksibel
+    ) or "tidak ada"
+
+    str_tdk = ", ".join(a['nama'] for a in tdk_fleksibel) or "tidak ada"
+
+    # Susun konteks optimasi
+    if hasil_opt and hasil_opt.get('aktif'):
+        opt_status = hasil_opt['status']
+        if opt_status in ('efisien', 'cukup_efisien'):
+            langkah_str = "\n".join(
+                f"  - {l['nama']}: kurangi dari {l['jam_awal']} jam → "
+                f"{l['jam_rekomendasi']} jam "
+                f"(hemat Rp {l['hemat_rp']:,}/bulan, "
+                f"kurangi {l['hemat_emisi_kg']} kgCO₂/bulan)"
+                for l in hasil_opt['langkah']
+            )
+            konteks_opt = f"""
+Hasil Optimasi Penggunaan (Brute Force IKE Optimizer):
+  Status       : Berhasil mencapai zona {opt_status.replace('_', ' ').title()}
+  IKE sebelum  : {hasil_opt['ike_awal']} → IKE setelah: {hasil_opt['ike_akhir']} kWh/m²/bulan
+  Hemat biaya  : Rp {hasil_opt['hemat_rp']:,}/bulan ({hasil_opt['persen_hemat_rp']}%)
+  Kurang emisi : {hasil_opt['hemat_emisi_kg']} kgCO₂/bulan ({hasil_opt['persen_hemat_emisi']}%)
+  Emisi sesudah: {hasil_opt['emisi_akhir']} kgCO₂/bulan
+Langkah spesifik yang direkomendasikan:
+{langkah_str}"""
+        else:
+            konteks_opt = f"""
+Hasil Optimasi: Target IKE tidak tercapai meski semua peralatan fleksibel sudah dimaksimalkan.
+  IKE terbaik yang dicapai: {hasil_opt['ike_akhir']} kWh/m²/bulan
+  Hemat biaya  : Rp {hasil_opt['hemat_rp']:,}/bulan ({hasil_opt['persen_hemat_rp']}%)
+  Kurang emisi : {hasil_opt['hemat_emisi_kg']} kgCO₂/bulan
+  Saran        : Pertimbangkan mengganti peralatan dengan label SKEM bintang tinggi."""
+    else:
+        konteks_opt = "Optimasi tidak diperlukan — konsumsi sudah dalam zona efisien."
+
+    # Susun konteks KNN
+    konteks_knn = (
+        f"Target rumah tangga serupa yang lebih efisien (KNN): "
+        f"tagihan Rp {knn_ctx['target_tagihan_rp']:,}/bulan, "
+        f"emisi {knn_ctx['target_emisi_kg']} kgCO₂/bulan, "
+        f"IKE {knn_ctx['target_ike']} kWh/m²/bulan. "
+        f"Potensi hemat biaya: {knn_ctx['persen_hemat_biaya']}%, "
+        f"potensi kurang emisi: {knn_ctx['persen_hemat_emisi']}%."
+    )
+
+    anomali_str  = (
+        f"TERDETEKSI — selisih {payload['selisih_pct']}% dari tagihan asli. "
+        "Kemungkinan ada perangkat yang belum diinput atau kebocoran arus."
+        if payload['is_anomali']
+        else "Normal"
+    )
+    fokus_str    = " + ".join(intent_user) if intent_user else "Efisiensi Umum"
+    emisi_sblm   = payload['emisi_sebelum']
+
+    prompt = f"""
+Kamu adalah EnergiCerdas AI — konsultan energi rumah tangga Jakarta yang ramah, \
+suportif, dan berbasis data regulasi resmi Indonesia.
+
+Teks ini muncul TEPAT DI BAWAH dasbor metrik angka di aplikasi web.
+
+DATA ANALISIS:
+- Anomali tagihan     : {anomali_str}
+- Profil IKE          : {label_ike} (IKE {payload['ike']:.4f} kWh/m²/bulan)
+- Emisi sekarang      : {emisi_sblm['emisi_kg_bulan']} kgCO₂/bulan \
+({emisi_sblm['emisi_kg_tahun']} kgCO₂/tahun)
+- Fokus user          : {fokus_str}
+- Peralatan fleksibel : {str_fleksibel}
+- Peralatan tetap     : {str_tdk}
+
+{konteks_opt}
+
+{konteks_knn}
+
+ATURAN PENULISAN:
+1. JANGAN gunakan kalimat pembuka seperti "Berikut adalah..." atau \
+"Berdasarkan analisis...". Langsung merujuk ke dasbor di atas, \
+contoh: "Melihat dasbor di atas, kondisi kelistrikan Anda..."
+2. Jika ada langkah optimasi, jelaskan dengan antusias dan spesifik \
+— sebut nama peralatannya, jam pengurangannya, dan dampak rupiahnya.
+3. Akhiri dengan kalimat penyemangat yang hangat dan personal — \
+buat user merasa bangga dan termotivasi untuk implementasi.
+4. Jika konsumsi sudah efisien, berikan tips penghematan tingkat lanjut \
+dan pujian yang tulus.
+5. Hubungkan dampak penghematan energi dengan SDG 7 (energi bersih) \
+dan SDG 13 (aksi iklim) secara natural, bukan sebagai daftar.
+6. Gunakan bahasa Indonesia yang hangat, mudah dipahami, \
+dan tidak terlalu teknis.
+7. Panjang respons: 3–4 paragraf, tidak perlu bullet point.
+"""
+    response = model.generate_content(prompt)
+    return response.text
+
+
+# ============================================================
+# KONFIGURASI HALAMAN & SESSION STATE
+# ============================================================
+
+st.set_page_config(
+    page_title="EnergiCerdas AI",
+    page_icon="⚡",
+    layout="wide"
+)
+
+# Load model sekali
+dsm_clf = load_dsm()
+knn_rec = load_knn()
+
+# ============================================================
+# SIDEBAR — API KEY
+# ============================================================
+
+with st.sidebar:
+    st.header("⚙️ Konfigurasi")
+    try:
+        gemini_api_key = st.secrets["GEMINI_API_KEY"]
+        st.success("✅ Gemini API Key terhubung.")
+    except KeyError:
+        gemini_api_key = st.text_input(
+            "Gemini API Key",
+            type="password",
+            help="Dapatkan di https://aistudio.google.com/app/apikey"
+        )
+        if not gemini_api_key:
+            st.warning("⚠️ Masukkan API Key untuk mengaktifkan narasi AI.")
+
     st.divider()
-    st.subheader("📊 Dasbor Analisis (Rule-Based & Decision Tree)")
-    if payload['is_anomali']: st.error("⚠️ ANOMALI TERDETEKSI: Arus bocor atau data tidak wajar.")
-    else: st.success("✅ Tagihan Wajar.")
-        
+    st.caption(
+        "Model DSM: LightGBM\n"
+        "Profil IKE: Fuzzy Mamdani\n"
+        "Role Model: KNN\n"
+        "Optimizer: Brute Force IKE\n"
+        "Gen AI: Gemini 2.5 Flash"
+    )
+
+# ============================================================
+# JUDUL
+# ============================================================
+
+st.title("⚡ EnergiCerdas AI")
+st.markdown(
+    "Sistem rekomendasi energi rumah tangga Jakarta "
+    "berbasis standar regulasi resmi Indonesia."
+)
+
+# ============================================================
+# INPUT 1 — PROFIL RUMAH TANGGA
+# ============================================================
+
+st.header("1. Profil Rumah Tangga")
+c1, c2, c3 = st.columns(3)
+with c1: luas_rumah   = st.number_input("Luas Bangunan (m²)", 10, 500, 45)
+with c2: penghuni     = st.number_input("Jumlah Penghuni", 1, 20, 3)
+with c3: tagihan_asli = st.number_input(
+    "Tagihan Bulan Lalu (Rp)", 50_000, 10_000_000, 600_000
+)
+
+# ============================================================
+# INPUT 2 — DAYA & METERAN
+# ============================================================
+
+st.header("2. Informasi Daya & Meteran")
+c4, c5 = st.columns(2)
+with c4:
+    daya_va = st.selectbox(
+        "Daya Tersambung PLN",
+        options=[900, 1300, 2200, 3500, 4400, 5500, 6600, 7700, 10600, 13200],
+        index=1,
+        help="Tertera di meteran atau rekening listrik Anda"
+    )
+with c5:
+    jenis_meteran = st.radio(
+        "Jenis Meteran",
+        ["Prabayar (Token)", "Pascabayar (Tagihan)"],
+        horizontal=True,
+    )
+    is_prabayar = (jenis_meteran == "Prabayar (Token)")
+
+tarif_aktif = get_tarif(daya_va)
+bb_aktif    = 0 if is_prabayar else hitung_biaya_beban(daya_va)
+st.info(
+    f"Golongan {daya_va} VA · "
+    f"Tarif Rp {tarif_aktif:,.2f}/kWh · "
+    f"PBJT 2,4% (Perda DKI No.1/2024) · "
+    f"Biaya beban: "
+    f"{'Rp 0 (prabayar)' if is_prabayar else f'Rp {bb_aktif:,.0f}/bulan'}"
+)
+
+# ============================================================
+# INPUT 3 — PREFERENSI OPTIMASI
+# ============================================================
+
+st.header("3. Preferensi Optimasi")
+intent_user = st.multiselect(
+    "Fokus rekomendasi:",
+    ["Biaya", "Lingkungan"],
+    default=["Biaya"],
+)
+
+# ============================================================
+# INPUT 4 — INVENTARISASI PERALATAN LISTRIK
+# Form dinamis dengan session state (mengikuti pola app.py lama)
+# ============================================================
+
+st.header("4. Inventarisasi Peralatan Listrik")
+st.caption("P = V × I — daya dihitung otomatis dari tegangan dan arus.")
+
+# Inisialisasi session state
+if 'daftar_perangkat_saved' not in st.session_state:
+    st.session_state.daftar_perangkat_saved = []
+
+# Tampilkan peralatan yang sudah disimpan
+if st.session_state.daftar_perangkat_saved:
+    st.write("**Peralatan tersimpan:**")
+    for i, alat in enumerate(st.session_state.daftar_perangkat_saved):
+        col_info, col_del = st.columns([5, 1])
+        with col_info:
+            st.info(
+                f"🔌 **{alat['nama']}** ({alat['kategori']}) | "
+                f"{alat['tegangan']}V × {alat['arus']}A = "
+                f"**{alat['tegangan']*alat['arus']:,.0f} W** | "
+                f"{alat['jam']} jam/hari | "
+                f"{alat['tegangan']*alat['arus']*alat['jam']*30/1000:.2f} kWh/bulan"
+            )
+        with col_del:
+            if st.button("🗑️", key=f"del_{i}", help="Hapus peralatan ini"):
+                st.session_state.daftar_perangkat_saved.pop(i)
+                st.rerun()
+
+    if st.button("🗑️ Hapus Semua Peralatan"):
+        st.session_state.daftar_perangkat_saved = []
+        st.rerun()
+else:
+    st.warning("Belum ada peralatan. Tambahkan melalui form di bawah.")
+
+st.divider()
+
+# Form tambah peralatan baru
+with st.form("form_tambah_perangkat", clear_on_submit=True):
+    st.subheader("➕ Tambah Peralatan Baru")
+    col1, col2 = st.columns(2)
+    with col1:
+        input_nama     = st.text_input("Nama Alat", placeholder="cth: AC Kamar Tidur")
+        input_kategori = st.selectbox("Kategori", KATEGORI_OPTIONS)
+        input_jam      = st.number_input(
+            "Durasi Nyala (Jam/Hari)",
+            min_value=0.1, max_value=24.0, value=4.0, step=0.5
+        )
+    with col2:
+        input_volt   = st.number_input(
+            "Tegangan (V)", value=220.0, step=1.0,
+            help="Standar PLN Indonesia: 220V"
+        )
+        input_ampere = st.number_input(
+            "Arus (A)", min_value=0.01, max_value=100.0,
+            value=1.5, step=0.1, format="%.2f"
+        )
+        watt_preview = input_volt * input_ampere
+        st.metric(
+            "Estimasi Daya",
+            f"{watt_preview:.1f} W",
+            f"{watt_preview * input_jam * 30 / 1000:.2f} kWh/bulan"
+        )
+
+    submit = st.form_submit_button("➕ Tambahkan ke Daftar", use_container_width=True)
+    if submit and input_nama:
+        st.session_state.daftar_perangkat_saved.append({
+            "nama"    : input_nama,
+            "kategori": input_kategori,
+            "tegangan": input_volt,
+            "arus"    : input_ampere,
+            "jam"     : input_jam,
+        })
+        st.rerun()
+
+# ============================================================
+# TOMBOL ANALISIS
+# ============================================================
+
+st.divider()
+if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
+
+    if not st.session_state.daftar_perangkat_saved:
+        st.error("⚠️ Tambahkan minimal 1 peralatan terlebih dahulu!")
+        st.stop()
+
+    if not gemini_api_key:
+        st.error("⚠️ Masukkan Gemini API Key di sidebar untuk mengaktifkan narasi AI.")
+        st.stop()
+
+    daftar_perangkat = st.session_state.daftar_perangkat_saved
+
+    with st.spinner("⚙️ Lapis 1 — Kalkulasi tagihan & deteksi anomali..."):
+        # ── LAPIS 1: Kalkulasi & Anomali ─────────────────────────────────────
+        agent   = DataIngestionValidatorAgent(int(daya_va), is_prabayar)
+        payload = agent.proses_data(
+            luas_rumah, penghuni, tagihan_asli, daftar_perangkat
+        )
+
+    with st.spinner("🧠 Lapis 2 — Klasifikasi IKE & DSM..."):
+        # ── LAPIS 2a: Fuzzy IKE ───────────────────────────────────────────────
+        ada_ac    = any(a['kategori'] == 'Pendingin' for a in daftar_perangkat)
+        label_ike = profil_ike(
+            luas_rumah, penghuni, payload['total_kwh'], ada_ac
+        )
+
+        # ── LAPIS 2b: DSM Classifier ──────────────────────────────────────────
+        hasil_dsm  = dsm_clf.prediksi_batch(daftar_perangkat)
+        ringkasan  = dsm_clf.ringkasan_dsm(hasil_dsm)
+
+        # ── LAPIS 2c: KNN Role Model ──────────────────────────────────────────
+        role_model = knn_rec.cari_role_model(luas_rumah, penghuni, intent_user)
+        knn_ctx    = knn_rec.format_untuk_narasi(role_model, payload)
+
+    with st.spinner("⚡ Lapis 3 — Optimasi jadwal penggunaan (Brute Force IKE)..."):
+        # ── LAPIS 3: Brute Force Optimizer ───────────────────────────────────
+        hasil_opt = optimasi(
+            ringkasan_dsm = ringkasan,
+            luas_m2       = float(luas_rumah),
+            ada_ac        = ada_ac,
+            tarif_kwh     = agent.TARIF_KWH,
+            pbjt          = agent.PBJT,
+            biaya_beban   = agent.BIAYA_BEBAN,
+            kwh_awal      = payload['total_kwh'],
+            tagihan_awal  = payload['estimasi_rp'],
+            emisi_awal    = payload['emisi_sebelum']['emisi_kg_bulan'],
+        )
+
+        # Hitung emisi sesudah optimasi
+        if hasil_opt['aktif']:
+            emisi_sesudah = hitung_emisi(hasil_opt['total_kwh_akhir'])
+            hasil_opt['emisi_sesudah'] = emisi_sesudah
+
+    with st.spinner("✍️ Membangkitkan narasi rekomendasi (Gemini)..."):
+        # ── GEN AI: Gemini ────────────────────────────────────────────────────
+        narasi = generate_gemini_narasi(
+            api_key     = gemini_api_key,
+            label_ike   = label_ike,
+            payload     = payload,
+            hasil_dsm   = hasil_dsm,
+            knn_ctx     = knn_ctx,
+            hasil_opt   = hasil_opt,
+            intent_user = intent_user,
+        )
+
+    # ============================================================
+    # RENDER HASIL
+    # ============================================================
+    st.divider()
+    st.subheader("📊 Hasil Analisis")
+
+    # ── Anomali ───────────────────────────────────────────────────────────────
+    if payload['is_anomali']:
+        st.error(
+            f"⚠️ Anomali terdeteksi — selisih estimasi vs tagihan asli "
+            f"{payload['selisih_pct']}% (ambang batas: 15%). "
+            "Kemungkinan ada perangkat yang belum diinput atau indikasi "
+            "kebocoran arus."
+        )
+    else:
+        st.success(f"✅ Tagihan wajar (selisih {payload['selisih_pct']}%).")
+
+    # ── Metrik utama ──────────────────────────────────────────────────────────
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Estimasi Sistem", f"Rp {payload['estimasi_rp']:,.0f}")
-    m2.metric("Profil IKE", profil_makro)
-    m3.metric("Status Anomali", "Ya" if payload['is_anomali'] else "Tidak")
-    m4.metric("Emisi Karbon", f"{payload['emisi']:.1f} kg")
-    
+    m1.metric("Estimasi Tagihan",  f"Rp {payload['estimasi_rp']:,.0f}")
+    m2.metric("Profil IKE",        label_ike)
+    m3.metric("Total Konsumsi",    f"{payload['total_kwh']} kWh/bln")
+    m4.metric("Emisi CO₂",
+              f"{payload['emisi_sebelum']['emisi_kg_bulan']} kg/bln")
+
+    # ── Hasil optimasi (jika aktif) ───────────────────────────────────────────
+    if hasil_opt['aktif'] and hasil_opt['langkah']:
+        st.divider()
+        st.subheader("⚡ Hasil Optimasi Penggunaan")
+
+        zona_label = {
+            'efisien'       : '🟢 Efisien',
+            'cukup_efisien' : '🟡 Cukup Efisien',
+            'tidak_tercapai': '🔴 Belum tercapai',
+        }
+        st.info(
+            f"**Status:** {zona_label.get(hasil_opt['status'], hasil_opt['status'])} · "
+            f"IKE {hasil_opt['ike_awal']} → {hasil_opt['ike_akhir']} kWh/m²/bulan"
+        )
+
+        o1, o2, o3 = st.columns(3)
+        o1.metric(
+            "Hemat Biaya/Bulan",
+            f"Rp {hasil_opt['hemat_rp']:,}",
+            f"{hasil_opt['persen_hemat_rp']}%"
+        )
+        o2.metric(
+            "Kurang Emisi/Bulan",
+            f"{hasil_opt['hemat_emisi_kg']} kgCO₂",
+            f"-{hasil_opt['persen_hemat_emisi']}%"
+        )
+        o3.metric(
+            "Emisi Setelah Optimasi",
+            f"{hasil_opt.get('emisi_sesudah', {}).get('emisi_kg_bulan', '-')} kgCO₂/bln"
+        )
+
+        st.write("**Langkah rekomendasi per peralatan:**")
+        for l in hasil_opt['langkah']:
+            st.markdown(
+                f"- 🔌 **{l['nama']}** — kurangi dari {l['jam_awal']} jam → "
+                f"**{l['jam_rekomendasi']} jam/hari** "
+                f"(hemat Rp {l['hemat_rp']:,}/bulan · "
+                f"kurangi {l['hemat_emisi_kg']} kgCO₂/bulan)"
+            )
+
+    # ── DSM Classifier ────────────────────────────────────────────────────────
+    with st.expander("🏷️ Klasifikasi DSM Peralatan"):
+        for a in hasil_dsm:
+            icon = "🟢" if a['label_dsm'] == 'Fleksibel' else "🔴"
+            st.markdown(
+                f"{icon} **{a['nama']}** — {a['label_dsm']} "
+                f"({a['watt']:.0f}W · {a['jam']}j/hari · "
+                f"{a['kwh_bulan']} kWh/bln)"
+                + (" ⚠️ *fallback*" if a['metode'] == 'fallback' else "")
+            )
+
+    # ── Rincian tagihan ───────────────────────────────────────────────────────
+    with st.expander("📄 Rincian Tagihan"):
+        st.markdown(f"""
+| Komponen | Nilai |
+|---|---|
+| Golongan daya | {payload['golongan_daya']} |
+| Tarif | Rp {payload['tarif_digunakan']:,.2f}/kWh |
+| Total pemakaian | {payload['total_kwh']} kWh |
+| Biaya pemakaian | Rp {payload['biaya_pemakaian']:,.0f} |
+| PBJT 2,4% (Perda DKI No.1/2024) | Rp {payload['biaya_pbjt']:,.0f} |
+| Biaya beban/RM | Rp {payload['biaya_beban']:,.0f} |
+| **Estimasi total** | **Rp {payload['estimasi_rp']:,.0f}** |
+        """)
+
+    # ── Rincian emisi ─────────────────────────────────────────────────────────
+    with st.expander("🌿 Rincian Emisi CO₂"):
+        e = payload['emisi_sebelum']
+        st.markdown(f"""
+| Komponen | Nilai |
+|---|---|
+| Faktor emisi | {e['faktor_emisi']} kgCO₂/kWh ({e['referensi']}) |
+| Emisi per bulan | {e['emisi_kg_bulan']} kgCO₂ |
+| Emisi per tahun | {e['emisi_kg_tahun']} kgCO₂ |
+        """)
+        if hasil_opt['aktif'] and 'emisi_sesudah' in hasil_opt:
+            es = hasil_opt['emisi_sesudah']
+            st.markdown("**Setelah optimasi:**")
+            st.markdown(f"""
+| Komponen | Nilai |
+|---|---|
+| Emisi sesudah | {es['emisi_kg_bulan']} kgCO₂/bulan |
+| Pengurangan | {hasil_opt['hemat_emisi_kg']} kgCO₂/bulan |
+| Pengurangan/tahun | {round(hasil_opt['hemat_emisi_kg']*12,2)} kgCO₂/tahun |
+| Persentase reduksi | {hasil_opt['persen_hemat_emisi']}% |
+            """)
+
+    # ── Rincian peralatan ─────────────────────────────────────────────────────
+    with st.expander("🔌 Rincian Peralatan"):
+        st.dataframe(
+            pd.DataFrame(payload['alat_valid']),
+            use_container_width=True
+        )
+
+    # ── Narasi Gemini ─────────────────────────────────────────────────────────
     st.divider()
-    st.subheader("🤖 Penjelasan Llama-3 AI")
-    st.markdown(narasi_akhir)
+    st.subheader("💡 Rekomendasi EnergiCerdas AI")
+    st.markdown(narasi)
