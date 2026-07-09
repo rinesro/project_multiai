@@ -40,6 +40,15 @@ Referensi regulasi:
 """
 
 from copy import deepcopy
+from pathlib import Path
+import sys as _sys
+
+_BASE = Path(__file__).parent.parent
+if str(_BASE) not in _sys.path:
+    _sys.path.insert(0, str(_BASE))
+from core.kalkulasi import hitung_tagihan as _core_hitung_tagihan
+from core.kalkulasi import hitung_emisi as _core_hitung_emisi
+from core.kalkulasi import FAKTOR_EMISI_JAMALI_OM
 
 # ── Konstanta IKE standar Depdiknas (kWh/m²/bulan) ───────────────────────────
 # Optimizer SKIP jika IKE ≤ batas Cukup Efisien (sudah dalam zona aman)
@@ -57,7 +66,6 @@ BATAS_IKE = {
     },
 }
 
-FAKTOR_EMISI    = 0.80   # kgCO₂/kWh — Grid Jamali OM [2]
 STEP_JAM        = 0.5    # step pengurangan jam
 MAKS_KURANG_PCT = 0.50   # maksimum pengurangan 50% dari jam asal
 MIN_JAM         = 0.5    # minimum jam operasi per peralatan
@@ -104,10 +112,20 @@ def _label_zona(ike: float, ada_ac: bool) -> str:
 
 
 def _total_kwh(alat_tetap: list, alat_fleksibel: list) -> float:
-    """Hitung total kWh bulanan dari semua peralatan."""
+    """
+    Hitung total kWh bulanan dari semua peralatan.
+
+    Peralatan fleksibel dihitung ulang tiap iterasi karena Lapis 3
+    mencoba skenario jam HIPOTETIS yang belum pernah dihitung Lapis 1
+    (mis. "kalau AC dikurangi jadi 7 jam, bagaimana?"). Peralatan
+    tetap (tidak fleksibel) memakai kwh_bulan yang SUDAH dihitung
+    Lapis 1 lewat DSM classifier — tidak dihitung ulang di sini.
+
+    Kedua kelompok ikut mengalikan 'jumlah' unit per entri.
+    """
     kwh_tetap = sum(a['kwh_bulan'] for a in alat_tetap)
     kwh_flex  = sum(
-        round(a['watt'] * a['jam_saat_ini'] * 30 / 1000, 4)
+        round(a['watt'] * a['jam_saat_ini'] * a.get('jumlah', 1) * 30 / 1000, 4)
         for a in alat_fleksibel
     )
     return round(kwh_tetap + kwh_flex, 3)
@@ -115,12 +133,13 @@ def _total_kwh(alat_tetap: list, alat_fleksibel: list) -> float:
 
 def _hitung_tagihan(kwh: float, tarif: float,
                     pbjt: float, biaya_beban: float) -> float:
-    biaya = kwh * tarif
-    return round(biaya + biaya * pbjt + biaya_beban, 0)
+    """Wrapper tipis ke core.kalkulasi.hitung_tagihan — rumus sama, tidak ditulis ulang."""
+    return _core_hitung_tagihan(kwh, tarif, pbjt, biaya_beban)["total"]
 
 
 def _hitung_emisi(kwh: float) -> float:
-    return round(kwh * FAKTOR_EMISI, 3)
+    """Wrapper tipis ke core.kalkulasi.hitung_emisi — rumus sama, tidak ditulis ulang."""
+    return _core_hitung_emisi(kwh)["emisi_kg_bulan"]
 
 
 # ── Greedy optimizer ──────────────────────────────────────────────────────────
@@ -323,9 +342,10 @@ def optimasi(ringkasan_dsm : dict,
         if kurang <= 0:
             continue
 
-        kwh_hemat  = round(alat['watt'] * kurang * 30 / 1000, 3)
+        jumlah = alat.get('jumlah', 1)
+        kwh_hemat  = round(alat['watt'] * kurang * jumlah * 30 / 1000, 3)
         rp_hemat   = round(kwh_hemat * tarif_kwh * (1 + pbjt), 0)
-        emisi_hemat= round(kwh_hemat * FAKTOR_EMISI, 3)
+        emisi_hemat= round(kwh_hemat * FAKTOR_EMISI_JAMALI_OM, 3)
 
         langkah.append({
             "nama"           : alat['nama'],

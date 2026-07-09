@@ -22,6 +22,12 @@ import joblib
 import pandas as pd
 import numpy as np
 from pathlib import Path
+import sys as _sys
+
+_BASE = Path(__file__).parent.parent
+if str(_BASE) not in _sys.path:
+    _sys.path.insert(0, str(_BASE))
+from core.kalkulasi import hitung_watt, hitung_kwh_alat
 
 # ── Label model → label sistem ────────────────────────────────────────────────
 LABEL_MAP = {
@@ -41,7 +47,7 @@ KATEGORI_VALID = {
     "Lainnya",
 }
 
-_BASE         = Path(__file__).parent.parent
+# ── Path model (relatif dari root proyek) ─────────────────────────────────────
 _PATH_MODEL   = _BASE / "data" / "dsm_lightgbm_model.pkl"
 _PATH_ENCODER = _BASE / "data" / "dsm_target_encoder.pkl"
 
@@ -93,10 +99,19 @@ class DSMClassifier:
         return self._FALLBACK_MAP.get(kategori, "Tidak Fleksibel")
 
     def _validasi_alat(self, alat: dict) -> dict:
-        hasil         = alat.copy()
-        hasil['watt'] = round(alat.get('tegangan', 0) * alat.get('arus', 0), 2)
-        hasil['valid']= True
-        hasil['pesan']= ""
+        hasil = alat.copy()
+
+        # Pakai 'watt' yang sudah dihitung Lapis 1 (app.py) kalau tersedia
+        # di payload['alat_valid'] — tidak dihitung ulang di sini.
+        # Fallback ke core.kalkulasi kalau DSMClassifier dipanggil
+        # berdiri sendiri (mis. dari test) tanpa lewat Lapis 1 dulu.
+        if 'watt' not in hasil:
+            hasil['watt'] = hitung_watt(
+                alat.get('tegangan', 0), alat.get('arus', 0)
+            )
+
+        hasil['valid'] = True
+        hasil['pesan'] = ""
 
         if alat.get('kategori') not in KATEGORI_VALID:
             hasil['valid'] = False
@@ -116,8 +131,18 @@ class DSMClassifier:
         """
         Memprediksi label DSM untuk semua peralatan sekaligus.
 
+        Idealnya dipanggil dengan payload['alat_valid'] hasil Lapis 1
+        (app.py) yang sudah punya 'watt' dan 'kwh_bulan' terhitung —
+        supaya kwh_bulan TIDAK dihitung ulang di sini dan tetap satu
+        sumber kebenaran. Kalau dipanggil dengan data mentah (tanpa
+        'watt'/'kwh_bulan'), fungsi ini tetap bisa jalan dengan fallback
+        ke core.kalkulasi (dipakai untuk pengujian berdiri sendiri).
+
+        Fitur yang dikirim ke model tetap arus PER-UNIT (bukan dikali
+        jumlah), supaya prediksi tidak keluar dari rentang data latih.
+
         Returns list of dict per peralatan:
-            nama, kategori, tegangan, arus, watt, jam,
+            nama, kategori, tegangan, arus, watt, jam, jumlah,
             kwh_bulan, label_dsm, metode, valid, pesan
         """
         if not daftar_alat:
@@ -135,8 +160,8 @@ class DSMClassifier:
                 rows_untuk_pred.append({
                     'Kategori'    : alat['kategori'],
                     'Tegangan_V'  : alat['tegangan'],
-                    'Arus_A'      : alat['arus'],
-                    'Daya_W'      : alat['watt'],
+                    'Arus_A'      : alat['arus'],   # per-unit, bukan × jumlah
+                    'Daya_W'      : alat['watt'],   # per-unit
                     'Jam_Per_Hari': alat['jam'],
                 })
 
@@ -161,7 +186,17 @@ class DSMClassifier:
 
         # Rakit hasil
         for i, alat in enumerate(alat_diproses):
-            kwh_bulan = round(alat['watt'] * alat.get('jam', 0) * 30 / 1000, 3)
+            jumlah = alat.get('jumlah', 1)
+
+            # Pakai kwh_bulan dari Lapis 1 kalau sudah ada (sumber
+            # kebenaran) — TIDAK dihitung ulang. Fallback ke core
+            # kalau dipanggil tanpa lewat Lapis 1.
+            if 'kwh_bulan' in alat:
+                kwh_bulan = alat['kwh_bulan']
+            else:
+                kwh_bulan = hitung_kwh_alat(
+                    alat['watt'], alat.get('jam', 0), jumlah
+                )
 
             if not alat['valid']:
                 label  = self._fallback(alat.get('kategori', 'Lainnya'))
@@ -180,6 +215,7 @@ class DSMClassifier:
                 'arus'     : alat.get('arus', 0),
                 'watt'     : alat['watt'],
                 'jam'      : alat.get('jam', 0),
+                'jumlah'   : jumlah,
                 'kwh_bulan': kwh_bulan,
                 'label_dsm': label,
                 'metode'   : metode,

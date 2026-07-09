@@ -1,4 +1,3 @@
-from .dsm_classifier  import DSMClassifier
-from .knn_recommender import KNNRecommender
+from .dsm_classifier import DSMClassifier
 
-__all__ = ["DSMClassifier", "KNNRecommender"]
+__all__ = ["DSMClassifier"]

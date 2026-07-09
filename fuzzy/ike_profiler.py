@@ -105,17 +105,23 @@ def _defuzzifikasi_centroid(output_sets: dict,
 
 # ── Fungsi utama ──────────────────────────────────────────────────────────────
 
-def profil_ike(luas_m2: float,
-               penghuni: int,
-               total_kwh: float,
+def profil_ike(ike: float,
+               kwh_per_org: float,
                ada_ac: bool) -> str:
     """
     Mengklasifikasikan profil IKE rumah tangga menggunakan
     inferensi Fuzzy Mamdani dua variabel input.
 
+    PENTING — perubahan sejak refactor konsolidasi kalkulasi:
+    Fungsi ini TIDAK LAGI menghitung IKE dan kWh/penghuni sendiri.
+    Kedua nilai itu sudah dihitung sekali di Lapis 1 (app.py, lewat
+    core/kalkulasi.py) dan tinggal diterima di sini sebagai parameter,
+    supaya tidak ada rumus yang sama ditulis ulang di dua tempat
+    berbeda dan berisiko tidak sinkron.
+
     Variabel input:
-        1. IKE          = total_kwh / luas_m2   (kWh/m²/bulan)
-        2. kWh/penghuni = total_kwh / penghuni  (kWh/orang/bulan)
+        1. ike          : kWh/m²/bulan — dari core.hitung_ike()
+        2. kwh_per_org  : kWh/orang/bulan — dari core.hitung_kwh_per_org()
 
     Batas IKE standar Depdiknas (kWh/m²/bulan):
         Tidak ber-AC:
@@ -133,19 +139,17 @@ def profil_ike(luas_m2: float,
             Sangat Boros   : IKE > 23.75
 
     Parameters:
-        luas_m2   : luas bangunan (m²), minimal 1.0
-        penghuni  : jumlah penghuni, minimal 1
-        total_kwh : total konsumsi bulanan (kWh)
-        ada_ac    : True jika ada peralatan kategori "Pendingin"
+        ike         : IKE (kWh/m²/bulan), sudah dihitung di Lapis 1
+        kwh_per_org : konsumsi per penghuni (kWh/orang/bulan),
+                      sudah dihitung di Lapis 1
+        ada_ac      : True jika ada peralatan kategori "Pendingin"
 
     Returns:
         str : salah satu dari
               'Sangat Efisien' | 'Efisien' | 'Cukup Efisien' |
               'Boros' | 'Sangat Boros'
     """
-    # Hitung nilai input
-    ike          = total_kwh / max(1.0, float(luas_m2))
-    kwh_per_org  = total_kwh / max(1, int(penghuni))
+    kwh_per_org = float(kwh_per_org)
 
     # ── Himpunan fuzzy input: IKE ─────────────────────────────────────────────
     # Dibedakan antara rumah ber-AC dan tidak ber-AC sesuai standar Depdiknas.
