@@ -1,11 +1,18 @@
-streamlit>=1.30.0
-pandas>=2.0.0
-numpy>=1.24.0
+# ============================================================
+# EnergiCerdas AI — Requirements
+# ============================================================
+
+# Web framework
+streamlit>=1.35.0
+
+# Data & numerik
+pandas>=2.2.0
+numpy>=1.26.0
+
+# Machine learning
 scikit-learn==1.8.0
-joblib>=1.3.0
-torch>=2.0.0
-transformers>=4.40.0
-peft>=0.10.0
-accelerate>=0.27.0
-huggingface_hub>=0.20.0
-bitsandbytes>=0.43.0
+lightgbm>=4.3.0
+joblib>=1.4.0
+
+# Gen AI
+google-generativeai>=0.7.0
