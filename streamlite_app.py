@@ -1,158 +1,145 @@
 """
-streamlit_app.py
-================
-Antarmuka Streamlit untuk MENGUJI sistem penerimaan dan validasi input.
+orchestrator.py
+===============
+Perangkai (orchestrator) sistem EnergiCerdas AI.
 
-Berkas ini SATU-SATUNYA yang mengimpor Streamlit. Ia tidak menulis ulang
-logika validasi — ia mengumpulkan input dari widget, menyusunnya menjadi satu
-dict, lalu memanggil `app.validasi_permintaan()`. Dengan begitu logika yang
-diuji di sini adalah logika yang sama persis yang nanti dipakai FastAPI dan
-frontend, bukan salinannya.
+Menyambungkan tujuh komponen menjadi satu fungsi: dari input mentah frontend
+sampai hasil analisis lengkap. Tidak mengandung rumus sendiri — hanya memanggil
+komponen dalam urutan yang benar dan merakit hasilnya.
 
-    widget Streamlit  ->  dict mentah  ->  app.validasi_permintaan()  ->  hasil
+    input mentah
+        -> app.validasi_permintaan            (gerbang)
+        -> kalkulator.rincian_peralatan        (Lapis 1)
+        -> kalkulator.hitung_rentang_tagihan   (Lapis 1)
+        -> anomaly_detector.deteksi_anomali    (Lapis 2, pascabayar saja)
+        -> DSMClassifier.prediksi_batch        (Lapis 2)
+        -> brute_force.optimasi                (Lapis 3)
+    hasil analisis
 
-Jalankan dari ROOT proyek:
-
-    streamlit run streamlit_app.py
-
-Catatan: pada tahap ini antarmuka baru sampai validasi. Ia menampilkan data
-bersih yang lolos, atau daftar kesalahan. Penyambungan ke Lapis 1-2-3 (kalkulasi,
-DSM, optimizer) dilakukan pada langkah berikutnya, setelah berkas-berkas itu
-ikut diperbarui.
+Modul ini tidak mengimpor Streamlit, sehingga bisa dipakai ulang oleh FastAPI
+saat deploy. streamlit_app.py memanggil analisis() lalu menampilkan hasilnya.
 """
 
-import streamlit as st
-
-from app import validasi_permintaan, opsi_input
-
-st.set_page_config(page_title="EnergiCerdas AI — Uji Input", page_icon="⚡",
-                   layout="wide")
-
-OPSI = opsi_input()
-
-st.title("⚡ EnergiCerdas AI")
-st.caption("Mode pengujian penerimaan & validasi input")
-
-
-# ── State daftar peralatan ────────────────────────────────────────────────────
-if "peralatan" not in st.session_state:
-    st.session_state.peralatan = []
+from app import validasi_permintaan
+from core.kalkulator import (
+    rincian_peralatan, hitung_rentang_tagihan, hitung_rentang_token,
+    hitung_ike, hitung_kwh_per_org, hitung_emisi,
+    total_kvah, rentang_kwh,
+)
+from core.anomaly_detector import deteksi_anomali
+from models.dsm_classifier import DSMClassifier
+from optimizer.brute_force import optimasi
+from core.konstanta import PBJT_RUMAH_TANGGA
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 1. PROFIL RUMAH & METERAN
-# ══════════════════════════════════════════════════════════════════════════════
-st.header("1. Profil Rumah & Meteran")
-
-c1, c2, c3 = st.columns(3)
-with c1:
-    luas_m2 = st.number_input("Luas Bangunan (m²)", min_value=1, max_value=100_000,
-                              value=45)
-with c2:
-    penghuni = st.number_input("Jumlah Penghuni", min_value=1, max_value=1_000,
-                               value=3)
-with c3:
-    daya_va = st.selectbox("Daya Tersambung (VA)", OPSI["golongan_daya"], index=1)
-
-jenis = st.radio("Jenis Meteran", ["Pascabayar", "Prabayar"], horizontal=True)
-is_prabayar = jenis == "Prabayar"
+# Model dimuat sekali saja (mahal). streamlit_app membungkusnya dengan cache.
+_DSM = None
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 2. DATA BULAN LALU
-# ══════════════════════════════════════════════════════════════════════════════
-st.header("2. Data Bulan Lalu")
-
-tagihan_riil = None
-sisa_kwh = None
-target_hari = 30
-
-if is_prabayar:
-    cc1, cc2 = st.columns(2)
-    with cc1:
-        sisa_kwh = st.number_input("Sisa kWh di Meteran (opsional)",
-                                   min_value=0.0, max_value=100_000.0, value=0.0,
-                                   help="Kosongkan (biarkan 0) bila tidak diisi.")
-    with cc2:
-        target_hari = st.number_input("Target Bertahan (hari)", min_value=1,
-                                      max_value=366, value=30)
-    st.info("Deteksi anomali tidak dijalankan untuk prabayar.")
-else:
-    tagihan_riil = st.number_input("Tagihan Bulan Lalu (Rp)", min_value=0.0,
-                                   max_value=1_000_000_000.0, value=500_000.0,
-                                   step=10_000.0,
-                                   help="Pembanding untuk deteksi anomali.")
+def _dsm() -> DSMClassifier:
+    global _DSM
+    if _DSM is None:
+        _DSM = DSMClassifier()
+    return _DSM
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 3. PERALATAN
-# ══════════════════════════════════════════════════════════════════════════════
-st.header("3. Inventaris Peralatan")
+def analisis(permintaan: dict, dsm_clf: DSMClassifier = None,
+             pbjt: float = PBJT_RUMAH_TANGGA) -> dict:
+    """
+    Menjalankan seluruh pipeline atas satu permintaan MENTAH dari frontend.
 
-with st.form("tambah_alat", clear_on_submit=True):
-    f1, f2 = st.columns(2)
-    with f1:
-        in_nama = st.text_input("Nama Alat", placeholder="cth: AC Kamar")
-        in_kategori = st.selectbox("Kategori", OPSI["kategori_peralatan"])
-        in_jam = st.number_input("Jam / Hari", min_value=0.1, max_value=24.0,
-                                 value=4.0, step=0.5)
-    with f2:
-        in_teg = st.number_input("Tegangan (V)", min_value=1.0, max_value=1000.0,
-                                 value=220.0)
-        in_arus = st.number_input("Arus per Unit (A)", min_value=0.001,
-                                  max_value=1000.0, value=1.5, format="%.3f")
-        in_jml = st.number_input("Jumlah Unit", min_value=1, max_value=10_000,
-                                 value=1)
+    Parameters
+    ----------
+    permintaan : dict
+        Persis bentuk yang dikirim frontend (belum divalidasi). Divalidasi
+        di dalam fungsi ini.
+    dsm_clf : DSMClassifier, opsional
+        Bila None, memakai instance bersama yang dimuat sekali.
 
-    if st.form_submit_button("Tambahkan", width="stretch"):
-        st.session_state.peralatan.append({
-            "nama": in_nama, "kategori": in_kategori, "tegangan": in_teg,
-            "arus": in_arus, "jam": in_jam, "jumlah": in_jml,
-        })
+    Returns
+    -------
+    dict:
+        ok : bool
+        Jika False -> {'ok': False, 'errors': [...]}
+        Jika True  -> hasil analisis lengkap (lihat kunci di bawah).
+    """
+    # ── Gerbang: validasi input ──────────────────────────────────────────────
+    v = validasi_permintaan(permintaan)
+    if not v["ok"]:
+        return {"ok": False, "errors": v["errors"]}
 
-if st.session_state.peralatan:
-    st.write(f"**{len(st.session_state.peralatan)} peralatan:**")
-    for i, a in enumerate(st.session_state.peralatan):
-        col, btn = st.columns([8, 1])
-        jml = f" × {a['jumlah']}" if a.get("jumlah", 1) > 1 else ""
-        col.write(f"🔌 **{a['nama'] or '(tanpa nama)'}** — {a['kategori']} · "
-                  f"{a['tegangan']}V × {a['arus']}A · {a['jam']} j/hari{jml}")
-        if btn.button("🗑️", key=f"del{i}"):
-            st.session_state.peralatan.pop(i)
-            st.rerun()
-    if st.button("Hapus Semua"):
-        st.session_state.peralatan = []
-        st.rerun()
-else:
-    st.warning("Belum ada peralatan.")
+    b = v["bersih"]
+    daftar_alat = b["peralatan"]
+    daya_va = b["daya_va"]
+    is_prabayar = b["is_prabayar"]
 
+    clf = dsm_clf or _dsm()
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 4. VALIDASI
-# ══════════════════════════════════════════════════════════════════════════════
-st.divider()
+    # ── Lapis 1: kalkulasi ───────────────────────────────────────────────────
+    alat = rincian_peralatan(daftar_alat)
+    kvah = total_kvah(daftar_alat)
+    kwh_bawah, kwh_atas = rentang_kwh(kvah)
 
-if st.button("🔍 Validasi Input", type="primary", width="stretch"):
-    permintaan = {
-        "luas_m2":     luas_m2,
-        "penghuni":    penghuni,
-        "daya_va":     daya_va,
-        "is_prabayar": is_prabayar,
-        "peralatan":   st.session_state.peralatan,
-    }
+    ike = hitung_ike(kwh_atas, b["luas_m2"])          # basis cos phi = 1
+    kwh_org = hitung_kwh_per_org(kwh_atas, b["penghuni"])
+    ada_ac = any(a["kategori"] == "Pendingin" for a in daftar_alat)
+
     if is_prabayar:
-        if sisa_kwh and sisa_kwh > 0:
-            permintaan["sisa_kwh"] = sisa_kwh
-        permintaan["target_hari"] = target_hari
+        biaya = hitung_rentang_token(daftar_alat, daya_va, pbjt)
+        biaya_ringkas = {
+            "jenis": "token",
+            "bawah": biaya["token_bawah"],
+            "atas":  biaya["token_atas"],
+            "tengah": biaya["token_tengah"],
+        }
     else:
-        permintaan["tagihan_riil"] = tagihan_riil
+        biaya = hitung_rentang_tagihan(daftar_alat, daya_va, pbjt)
+        biaya_ringkas = {
+            "jenis": "tagihan",
+            "bawah": biaya["tagihan_bawah"],
+            "atas":  biaya["tagihan_atas"],
+            "tengah": biaya["tagihan_tengah"],
+        }
 
-    hasil = validasi_permintaan(permintaan)
+    emisi = {
+        "bawah":  hitung_emisi(kwh_bawah)["emisi_kg_bulan"],
+        "atas":   hitung_emisi(kwh_atas)["emisi_kg_bulan"],
+    }
 
-    if hasil["ok"]:
-        st.success("Semua input valid. Data bersih siap diteruskan ke Lapis 1.")
-        st.json(hasil["bersih"])
-    else:
-        st.error(f"{len(hasil['errors'])} kesalahan ditemukan:")
-        for e in hasil["errors"]:
-            st.markdown(f"- {e}")
+    # ── Lapis 2: deteksi anomali (PASCABAYAR SAJA) ───────────────────────────
+    anomali = None
+    if not is_prabayar:
+        anomali = deteksi_anomali(b["tagihan_riil"], biaya)
+
+    # ── Lapis 2: DSM ─────────────────────────────────────────────────────────
+    hasil_dsm = clf.prediksi_batch(alat)
+    ringkasan = clf.ringkasan_dsm(hasil_dsm)
+
+    # ── Lapis 3: optimasi ────────────────────────────────────────────────────
+    hasil_opt = optimasi(
+        ringkasan_dsm=ringkasan,
+        luas_m2=b["luas_m2"],
+        ada_ac=ada_ac,
+        daya_va=daya_va,
+        pbjt=pbjt,
+        is_prabayar=is_prabayar,
+    )
+
+    return {
+        "ok":            True,
+        "input":         b,
+        "ada_ac":        ada_ac,
+        "kvah":          kvah,
+        "kwh_bawah":     kwh_bawah,
+        "kwh_atas":      kwh_atas,
+        "ike":           ike,
+        "kwh_per_org":   kwh_org,
+        "biaya":         biaya_ringkas,
+        "emisi":         emisi,
+        "anomali":       anomali,
+        "dsm":           hasil_dsm,
+        "ringkasan_dsm": ringkasan,
+        "optimasi":      hasil_opt,
+        "model_siap":    clf.siap,
+        "model_error":   clf.pesan_error,
+    }
