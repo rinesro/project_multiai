@@ -2,3 +2,4 @@
 llama3_energicerdas_lora/adapter_model.safetensors 
 llama3_energicerdas_lora/adapter_model.safetensors 
 .streamlit/
+app.py

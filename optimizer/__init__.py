@@ -1,3 +1,3 @@
-from .brute_force import optimasi
+from optimizer.brute_force import optimasi
 
 __all__ = ["optimasi"]

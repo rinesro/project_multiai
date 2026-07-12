@@ -3,398 +3,397 @@ optimizer/brute_force.py
 =========================
 Brute Force Optimizer untuk EnergiCerdas AI — Lapis 3.
 
-Cara kerja:
-    1. Hanya aktif jika IKE user di zona Boros atau Sangat Boros
-       (IKE > batas Cukup Efisien)
-    2. Hanya memproses peralatan berlabel 'Fleksibel'
-    3. Mencoba kombinasi pengurangan jam pemakaian secara greedy:
-       mulai dari peralatan kWh terbesar
-    4. Target pertama : zona Efisien
-       Target fallback: zona Cukup Efisien (jika Efisien tidak tercapai)
-    5. Output berisi langkah per peralatan + selisih biaya + selisih emisi
+Fokus: IKE. Mencari komposisi jam pemakaian peralatan yang menurunkan IKE
+sampai menyentuh zona Efisien (atau Cukup Efisien sebagai fallback), lalu
+menghitung tagihan/token yang perlu dibayar untuk komposisi hasil optimasi.
+
+Cara kerja (TIDAK berubah dari versi sebelumnya):
+    1. Hanya aktif jika IKE user berada di zona Cukup Efisien ke atas
+       (IKE >= batas Efisien). Zona Sangat Efisien dan Efisien dilewati.
+    2. Hanya memproses peralatan berlabel 'Fleksibel'.
+    3. Greedy: kurangi jam pemakaian satu langkah per iterasi, mulai dari
+       peralatan dengan energi terbesar.
+    4. Target pertama : zona Efisien. Fallback: zona Cukup Efisien.
+    5. Output: langkah per peralatan + selisih biaya + selisih emisi.
 
 Strategi pengurangan:
-    - Step pengurangan : 0.5 jam per iterasi
-    - Batas minimum    : 0.5 jam (tidak boleh nol)
-    - Maks pengurangan : 50% dari jam asal per peralatan
+    Step pengurangan : 0,5 jam per iterasi
+    Batas minimum    : 0,5 jam (tidak boleh nol)
+    Maks pengurangan : 50% dari jam asal per peralatan
 
-Referensi standar IKE Depdiknas (kWh/m²/bulan):
-    Tidak ber-AC:
-        Sangat Efisien : IKE < 0.84
-        Efisien        : 0.84 ≤ IKE < 1.67
-        Cukup Efisien  : 1.67 ≤ IKE ≤ 2.50
-        Boros          : 2.50 < IKE ≤ 3.34   ← optimizer aktif
-        Sangat Boros   : IKE > 3.34           ← optimizer aktif
-    Ber-AC:
-        Sangat Efisien : IKE < 7.92
-        Efisien        : 7.92 ≤ IKE < 12.08
-        Cukup Efisien  : 12.08 ≤ IKE ≤ 14.58
-        Boros          : 14.58 < IKE ≤ 23.75 ← optimizer aktif
-        Sangat Boros   : IKE > 23.75          ← optimizer aktif
 
-Referensi regulasi:
-    [1] Tarif PLN April–Juni 2026 — PT PLN (Persero)
-    [2] Faktor Emisi GRK Grid Jamali OM 0,80 kgCO₂/kWh — ESDM 2019
-    [3] PBJT 2,4% — Perda DKI Jakarta No.1/2024
-    [5] Standar IKE — Pedoman Konservasi Energi Depdiknas RI
+YANG BERUBAH dari versi sebelumnya, dan alasannya
+-------------------------------------------------
+Hanya empat hal, semuanya karena Lapis 1 sudah dirombak. Algoritma greedy,
+ambang IKE, urutan target, dan strategi pengurangan TETAP SAMA.
+
+1. Impor dari core.kalkulator (dulu core.kalkulasi). Modul berganti nama.
+   Hack sys.path dihapus; paket sudah proper.
+
+2. hitung_tagihan(kwh, daya_va, pbjt) menggantikan
+   hitung_tagihan(kwh, tarif, pbjt, biaya_beban). Rekening Minimum kini
+   LANTAI tagihan, bukan komponen tambahan, sehingga biaya_beban tidak ada.
+
+3. Field peralatan mengikuti keluaran Lapis 1 baru:
+       watt      -> daya_semu_va   (V x I, satuan VA)
+       kwh_bulan -> kvah_bulan     (energi semu bulanan, kVAh)
+
+4. TAMBAHAN yang diminta: biaya yang perlu dibayar untuk komposisi hasil
+   optimasi. Pascabayar -> tagihan; prabayar -> nominal token. Keduanya
+   disajikan sebagai RENTANG, karena sistem hanya tahu daya semu sedangkan
+   kWh meter mencatat daya nyata (lihat catatan faktor daya di bawah).
+
+
+CATATAN FAKTOR DAYA (mengapa biaya berupa rentang)
+--------------------------------------------------
+Optimizer bekerja pada energi SEMU (kVAh = V x I x jam), sama seperti versi
+asli. IKE dan pencarian greedy memakai basis ini — ini pilihan konservatif:
+energi semu adalah batas atas energi nyata (karena kWh nyata = kVAh x cos phi,
+dan cos phi <= 1), sehingga IKE tidak pernah diremehkan dan optimizer tidak
+berhenti terlalu dini.
+
+Untuk BIAYA yang perlu dibayar, energi semu dikonversi ke rentang kWh nyata
+memakai batas faktor daya PLN (catatan ****) lembar tarif): kWh nyata berada
+di antara kVAh x 0,85 dan kVAh x 1,00. Batas atas rentang biaya (cos phi = 1)
+sama dengan angka tunggal yang dihitung versi asli.
+
+
+Referensi:
+    [1] Penetapan Penyesuaian Tarif Tenaga Listrik April-Juni 2026 — PT PLN.
+    [2] Faktor Emisi GRK Grid Jamali OM 0,80 kgCO2/kWh — ESDM 2019.
+    [3] PBJT 2,4% — Perda DKI Jakarta No.1/2024.
+    [5] Standar IKE — Pedoman Konservasi Energi Depdiknas RI 2004.
 """
 
 from copy import deepcopy
-from pathlib import Path
-import sys as _sys
 
-_BASE = Path(__file__).parent.parent
-if str(_BASE) not in _sys.path:
-    _sys.path.insert(0, str(_BASE))
-from core.kalkulasi import hitung_tagihan as _core_hitung_tagihan
-from core.kalkulasi import hitung_emisi as _core_hitung_emisi
-from core.kalkulasi import FAKTOR_EMISI_JAMALI_OM
-
-# ── Konstanta IKE standar Depdiknas (kWh/m²/bulan) ───────────────────────────
-# Optimizer SKIP jika IKE ≤ batas Cukup Efisien (sudah dalam zona aman)
-# Optimizer AKTIF jika IKE > batas Cukup Efisien (zona Boros/Sangat Boros)
-BATAS_IKE = {
-    "tidak_ac": {
-        "sangat_efisien": 0.84,
-        "efisien"       : 1.67,
-        "cukup_efisien" : 2.50,
-    },
-    "ac": {
-        "sangat_efisien": 7.92,
-        "efisien"       : 12.08,
-        "cukup_efisien" : 14.58,
-    },
-}
+from core.konstanta import (
+    BATAS_IKE_DEPDIKNAS,
+    FAKTOR_EMISI_JAMALI_OM,
+    HARI_PER_BULAN,
+)
+from core.kalkulator import (
+    hitung_tagihan, hitung_token_dari_kwh, hitung_emisi,
+    rentang_kwh, get_tarif,
+)
 
 STEP_JAM        = 0.5    # step pengurangan jam
 MAKS_KURANG_PCT = 0.50   # maksimum pengurangan 50% dari jam asal
 MIN_JAM         = 0.5    # minimum jam operasi per peralatan
 
 
-# ── Helper functions ──────────────────────────────────────────────────────────
+# ── Helper: ambang & label IKE ────────────────────────────────────────────────
 
 def _get_batas(ada_ac: bool, zona: str) -> float:
-    """Ambil batas IKE berdasarkan kondisi AC dan nama zona."""
-    kunci = "ac" if ada_ac else "tidak_ac"
-    return BATAS_IKE[kunci][zona]
+    """Ambil batas IKE Depdiknas berdasarkan kondisi AC dan nama zona."""
+    return BATAS_IKE_DEPDIKNAS["ac" if ada_ac else "tidak_ac"][zona]
 
 
 def _label_zona(ike: float, ada_ac: bool) -> str:
     """
-    Tentukan label zona IKE dari nilai numerik.
-
-    Batas zona ber-AC (kWh/m²/bulan) — standar Depdiknas:
-        Sangat Efisien : IKE < 7.92
-        Efisien        : 7.92 ≤ IKE < 12.08
-        Cukup Efisien  : 12.08 ≤ IKE ≤ 14.58
-        Boros          : 14.58 < IKE ≤ 23.75
-        Sangat Boros   : IKE > 23.75
-
-    Batas zona tidak ber-AC (kWh/m²/bulan):
-        Sangat Efisien : IKE < 0.84
-        Efisien        : 0.84 ≤ IKE < 1.67
-        Cukup Efisien  : 1.67 ≤ IKE ≤ 2.50
-        Boros          : 2.50 < IKE ≤ 3.34
-        Sangat Boros   : IKE > 3.34
+    Tentukan label zona IKE dari nilai numerik. Ambang Depdiknas.
+    Logika sama persis dengan versi sebelumnya; ambang kini bersumber dari
+    core.konstanta agar tidak ada dua salinan angka.
     """
-    if ada_ac:
-        if ike < 7.92:   return "Sangat Efisien"
-        if ike < 12.08:  return "Efisien"
-        if ike <= 14.58: return "Cukup Efisien"
-        if ike <= 23.75: return "Boros"
-        return "Sangat Boros"
-    else:
-        if ike < 0.84:  return "Sangat Efisien"
-        if ike < 1.67:  return "Efisien"
-        if ike <= 2.50: return "Cukup Efisien"
-        if ike <= 3.34: return "Boros"
-        return "Sangat Boros"
+    b = BATAS_IKE_DEPDIKNAS["ac" if ada_ac else "tidak_ac"]
+    if ike < b["sangat_efisien"]: return "Sangat Efisien"
+    if ike < b["efisien"]:        return "Efisien"
+    if ike <= b["cukup_efisien"]: return "Cukup Efisien"
+    if ike <= b["boros"]:         return "Boros"
+    return "Sangat Boros"
 
 
-def _total_kwh(alat_tetap: list, alat_fleksibel: list) -> float:
-    """
-    Hitung total kWh bulanan dari semua peralatan.
+# ── Helper: energi ────────────────────────────────────────────────────────────
 
-    Peralatan fleksibel dihitung ulang tiap iterasi karena Lapis 3
-    mencoba skenario jam HIPOTETIS yang belum pernah dihitung Lapis 1
-    (mis. "kalau AC dikurangi jadi 7 jam, bagaimana?"). Peralatan
-    tetap (tidak fleksibel) memakai kwh_bulan yang SUDAH dihitung
-    Lapis 1 lewat DSM classifier — tidak dihitung ulang di sini.
-
-    Kedua kelompok ikut mengalikan 'jumlah' unit per entri.
-    """
-    kwh_tetap = sum(a['kwh_bulan'] for a in alat_tetap)
-    kwh_flex  = sum(
-        round(a['watt'] * a['jam_saat_ini'] * a.get('jumlah', 1) * 30 / 1000, 4)
-        for a in alat_fleksibel
+def _kvah_flex(alat: dict) -> float:
+    """Energi semu bulanan satu peralatan fleksibel pada jam_saat_ini (kVAh)."""
+    return round(
+        alat["daya_semu_va"] * alat["jam_saat_ini"] * alat.get("jumlah", 1)
+        * HARI_PER_BULAN / 1000,
+        4,
     )
-    return round(kwh_tetap + kwh_flex, 3)
 
 
-def _hitung_tagihan(kwh: float, tarif: float,
-                    pbjt: float, biaya_beban: float) -> float:
-    """Wrapper tipis ke core.kalkulasi.hitung_tagihan — rumus sama, tidak ditulis ulang."""
-    return _core_hitung_tagihan(kwh, tarif, pbjt, biaya_beban)["total"]
+def _total_kvah(alat_tetap: list, alat_flex: list) -> float:
+    """
+    Total energi semu bulanan (kVAh) dari semua peralatan.
+
+    Peralatan fleksibel dihitung ulang tiap iterasi karena Lapis 3 mencoba
+    skenario jam HIPOTETIS (mis. "kalau AC jadi 7 jam?"). Peralatan tetap
+    memakai kvah_bulan yang sudah dihitung Lapis 1 — tidak dihitung ulang.
+    """
+    kvah_tetap = sum(a["kvah_bulan"] for a in alat_tetap)
+    kvah_flex = sum(_kvah_flex(a) for a in alat_flex)
+    return round(kvah_tetap + kvah_flex, 3)
 
 
-def _hitung_emisi(kwh: float) -> float:
-    """Wrapper tipis ke core.kalkulasi.hitung_emisi — rumus sama, tidak ditulis ulang."""
-    return _core_hitung_emisi(kwh)["emisi_kg_bulan"]
+# ── Helper: biaya (tagihan pascabayar / token prabayar) ──────────────────────
+
+def _biaya_titik(kwh: float, daya_va: int, pbjt: float, is_prabayar: bool) -> float:
+    """Biaya untuk satu nilai kWh. Prabayar -> nominal token; pascabayar -> tagihan."""
+    if is_prabayar:
+        return hitung_token_dari_kwh(kwh, daya_va, pbjt)
+    return hitung_tagihan(kwh, daya_va, pbjt)["total"]
 
 
-# ── Greedy optimizer ──────────────────────────────────────────────────────────
+def _biaya_rentang(kvah: float, daya_va: int, pbjt: float,
+                   is_prabayar: bool) -> dict:
+    """
+    Biaya yang perlu dibayar untuk energi semu tertentu, sebagai RENTANG.
+
+        batas bawah : cos phi = 0,85 (faktor daya minimum PLN)
+        batas atas  : cos phi = 1,00 (beban resistif; = angka versi asli)
+    """
+    kwh_bawah, kwh_atas = rentang_kwh(kvah)
+    bawah = _biaya_titik(kwh_bawah, daya_va, pbjt, is_prabayar)
+    atas = _biaya_titik(kwh_atas, daya_va, pbjt, is_prabayar)
+    return {
+        "jenis":     "token" if is_prabayar else "tagihan",
+        "kwh_bawah": kwh_bawah,
+        "kwh_atas":  kwh_atas,
+        "bawah":     bawah,
+        "atas":      atas,
+        "tengah":    round((bawah + atas) / 2, 0),
+    }
+
+
+def _emisi_rentang(kvah: float) -> dict:
+    """Emisi CO2 sebagai rentang, mengikuti rentang kWh nyata."""
+    kwh_bawah, kwh_atas = rentang_kwh(kvah)
+    return {
+        "bawah":  hitung_emisi(kwh_bawah)["emisi_kg_bulan"],
+        "atas":   hitung_emisi(kwh_atas)["emisi_kg_bulan"],
+        "tengah": round(
+            (hitung_emisi(kwh_bawah)["emisi_kg_bulan"]
+             + hitung_emisi(kwh_atas)["emisi_kg_bulan"]) / 2, 3),
+    }
+
+
+def _rate_per_kvah(daya_va: int, pbjt: float, is_prabayar: bool) -> float:
+    """
+    Biaya marginal per 1 kVAh (basis cos phi = 1) untuk perhitungan per-langkah.
+    Prabayar memakai /(1-pbjt) karena PBJT atas nominal voucer; pascabayar
+    memakai x(1+pbjt) karena PBJT atas biaya pemakaian.
+    """
+    tarif = get_tarif(daya_va)
+    return tarif / (1 - pbjt) if is_prabayar else tarif * (1 + pbjt)
+
+
+# ── Greedy optimizer (logika TIDAK berubah) ──────────────────────────────────
 
 def _greedy(alat_tetap: list, alat_flex: list,
-            luas_m2: float, ada_ac: bool,
-            zona_target: str) -> tuple:
+            luas_m2: float, ada_ac: bool, zona_target: str) -> tuple:
     """
-    Greedy reduction: kurangi jam peralatan satu langkah per iterasi,
-    mulai dari yang kWh-nya terbesar, sampai IKE target tercapai
-    atau semua peralatan sudah di batas minimum.
+    Greedy reduction: kurangi jam peralatan satu langkah per iterasi, mulai
+    dari energi terbesar, sampai IKE target tercapai atau semua peralatan
+    sudah di batas minimum.
 
-    Returns:
-        (berhasil: bool, state_akhir: list)
+    Returns (berhasil: bool, state_akhir: list)
     """
     batas = _get_batas(ada_ac, zona_target)
     state = deepcopy(alat_flex)
 
-    # Urutkan dari kWh terbesar — dampak terbesar dulu
-    state.sort(key=lambda x: x['kwh_bulan'], reverse=True)
+    # Urutkan dari energi terbesar — dampak terbesar dulu
+    state.sort(key=lambda x: x["kvah_bulan"], reverse=True)
 
     while True:
-        ike_kini = _total_kwh(alat_tetap, state) / max(1.0, luas_m2)
-
+        ike_kini = _total_kvah(alat_tetap, state) / max(1.0, luas_m2)
         if ike_kini <= batas:
             return True, state
 
-        # Cek apakah masih ada yang bisa dikurangi
-        bisa_kurang = [
-            a for a in state
-            if a['jam_saat_ini'] > a['jam_minimum']
-        ]
+        bisa_kurang = [a for a in state if a["jam_saat_ini"] > a["jam_minimum"]]
         if not bisa_kurang:
             return False, state
 
-        # Kurangi satu langkah pada peralatan kWh terbesar yang masih bisa
         for alat in state:
-            if alat['jam_saat_ini'] > alat['jam_minimum']:
-                alat['jam_saat_ini'] = max(
-                    round(alat['jam_saat_ini'] - STEP_JAM, 1),
-                    alat['jam_minimum']
+            if alat["jam_saat_ini"] > alat["jam_minimum"]:
+                alat["jam_saat_ini"] = max(
+                    round(alat["jam_saat_ini"] - STEP_JAM, 1),
+                    alat["jam_minimum"],
                 )
                 break
 
 
+# ── Builder hasil (dipakai jalur aktif maupun tidak aktif) ───────────────────
+
+def _bungkus_hasil(aktif, status, zona_awal, zona_akhir, ike_awal, ike_akhir,
+                   target_ike, kvah_awal, kvah_akhir, daya_va, pbjt,
+                   is_prabayar, langkah, pesan) -> dict:
+    biaya_awal = _biaya_rentang(kvah_awal, daya_va, pbjt, is_prabayar)
+    biaya_akhir = _biaya_rentang(kvah_akhir, daya_va, pbjt, is_prabayar)
+    emisi_awal = _emisi_rentang(kvah_awal)
+    emisi_akhir = _emisi_rentang(kvah_akhir)
+
+    # Penghematan dihitung pada basis cos phi = 1 (batas atas), sehingga
+    # konsisten dengan penjumlahan langkah per peralatan.
+    hemat_kvah = round(kvah_awal - kvah_akhir, 3)
+    hemat_rp = round(biaya_awal["atas"] - biaya_akhir["atas"], 0)
+    hemat_emisi = round(emisi_awal["atas"] - emisi_akhir["atas"], 3)
+
+    pct_rp = round(hemat_rp / max(1.0, biaya_awal["atas"]) * 100, 1)
+    pct_emisi = round(hemat_emisi / max(1e-9, emisi_awal["atas"]) * 100, 1)
+
+    return {
+        "aktif":              aktif,
+        "status":             status,
+        "is_prabayar":        is_prabayar,
+        "zona_awal":          zona_awal,
+        "zona_akhir":         zona_akhir,
+        "ike_awal":           ike_awal,
+        "ike_akhir":          ike_akhir,
+        "target_ike":         target_ike,
+        "kvah_awal":          kvah_awal,
+        "kvah_akhir":         kvah_akhir,
+        "biaya_awal":         biaya_awal,
+        "biaya_akhir":        biaya_akhir,
+        "emisi_awal":         emisi_awal,
+        "emisi_akhir":        emisi_akhir,
+        "hemat_kvah":         hemat_kvah,
+        "hemat_rp":           int(hemat_rp),
+        "hemat_emisi_kg":     hemat_emisi,
+        "persen_hemat_rp":    pct_rp,
+        "persen_hemat_emisi": pct_emisi,
+        "langkah":            langkah,
+        "pesan":              pesan,
+    }
+
+
 # ── Fungsi utama ──────────────────────────────────────────────────────────────
 
-def optimasi(ringkasan_dsm : dict,
-             luas_m2       : float,
-             ada_ac        : bool,
-             tarif_kwh     : float,
-             pbjt          : float,
-             biaya_beban   : float,
-             kwh_awal      : float,
-             tagihan_awal  : float,
-             emisi_awal    : float) -> dict:
+def optimasi(ringkasan_dsm: dict,
+             luas_m2: float,
+             ada_ac: bool,
+             daya_va: int,
+             pbjt: float,
+             is_prabayar: bool) -> dict:
     """
     Brute force optimizer berbasis target IKE Depdiknas.
 
-    Parameters:
-        ringkasan_dsm  : output DSMClassifier.ringkasan_dsm()
-        luas_m2        : luas bangunan user (m²)
-        ada_ac         : True jika ada peralatan kategori Pendingin
-        tarif_kwh      : tarif PLN sesuai golongan (Rp/kWh)
-        pbjt           : tarif PBJT (0.024 untuk rumah tangga Jakarta)
-        biaya_beban    : biaya beban/RM bulanan (Rp), 0 jika prabayar
-        kwh_awal       : total kWh sebelum optimasi
-        tagihan_awal   : tagihan sebelum optimasi (Rp)
-        emisi_awal     : emisi CO₂ sebelum optimasi (kgCO₂/bulan)
+    Parameters
+    ----------
+    ringkasan_dsm : dict
+        Keluaran DSMClassifier.ringkasan_dsm(), memuat 'fleksibel' dan
+        'tidak_fleksibel'. Tiap peralatan wajib punya: nama, kategori, jam,
+        jumlah, daya_semu_va, kvah_bulan.
+    luas_m2 : float
+        Luas bangunan (m2).
+    ada_ac : bool
+        True jika ada peralatan kategori Pendingin.
+    daya_va : int
+        Daya tersambung, untuk tarif dan Rekening Minimum.
+    pbjt : float
+        Tarif PBJT (0,024 untuk rumah tangga Jakarta).
+    is_prabayar : bool
+        True -> biaya dihitung sebagai nominal token; False -> tagihan.
 
-    Returns dict berisi:
-        aktif           : bool — apakah optimizer berjalan
-        status          : 'sudah_efisien' | 'efisien' | 'cukup_efisien' |
-                          'tidak_tercapai'
-        zona_awal       : label zona IKE sebelum optimasi
-        zona_akhir      : label zona IKE setelah optimasi
-        ike_awal        : IKE sebelum (kWh/m²/bulan)
-        ike_akhir       : IKE setelah (kWh/m²/bulan)
-        target_ike      : nilai batas IKE yang dicapai
-        total_kwh_akhir : total kWh setelah optimasi
-        tagihan_akhir   : tagihan setelah optimasi (Rp)
-        emisi_akhir     : emisi setelah optimasi (kgCO₂/bulan)
-        hemat_kwh       : selisih kWh
-        hemat_rp        : selisih tagihan (Rp)
-        hemat_emisi_kg  : selisih emisi (kgCO₂/bulan)
-        persen_hemat_rp : persentase penghematan biaya (%)
-        persen_hemat_emisi: persentase pengurangan emisi (%)
-        langkah         : list rekomendasi per peralatan
-        pesan           : pesan ringkas status optimasi
+    Returns
+    -------
+    dict. Kunci utama:
+        aktif, status, zona_awal, zona_akhir, ike_awal, ike_akhir, target_ike,
+        kvah_awal, kvah_akhir,
+        biaya_awal, biaya_akhir : {jenis, bawah, atas, tengah, kwh_bawah, kwh_atas}
+        emisi_awal, emisi_akhir : {bawah, atas, tengah}
+        hemat_kvah, hemat_rp, hemat_emisi_kg, persen_hemat_rp, persen_hemat_emisi
+        langkah : list rekomendasi per peralatan
+        pesan
+
+    status: 'sudah_efisien' | 'efisien' | 'cukup_efisien' | 'tidak_tercapai'
     """
-    ike_awal  = round(kwh_awal / max(1.0, luas_m2), 4)
+    alat_tetap = ringkasan_dsm.get("tidak_fleksibel", [])
+    alat_raw = ringkasan_dsm.get("fleksibel", [])
+
+    # Energi & IKE awal (basis energi semu, seperti versi asli)
+    kvah_awal = round(
+        sum(a["kvah_bulan"] for a in alat_tetap)
+        + sum(a["kvah_bulan"] for a in alat_raw),
+        3,
+    )
+    ike_awal = round(kvah_awal / max(1.0, luas_m2), 4)
     zona_awal = _label_zona(ike_awal, ada_ac)
 
-    # ── Cek apakah optimizer perlu berjalan ───────────────────────────────────
-    # SKIP : IKE sudah < batas Efisien (zona Sangat Efisien / Efisien)
-    # AKTIF: IKE >= batas Efisien
-    #   → Cukup Efisien : coba turunkan ke Efisien
-    #   → Boros         : coba turunkan ke Efisien, fallback Cukup Efisien
-    #   → Sangat Boros  : coba turunkan ke Efisien, fallback Cukup Efisien
-    batas_cukup   = _get_batas(ada_ac, "cukup_efisien")
+    batas_cukup = _get_batas(ada_ac, "cukup_efisien")
     batas_efisien = _get_batas(ada_ac, "efisien")
 
+    # ── Gerbang aktivasi: SKIP jika sudah Efisien / Sangat Efisien ───────────
     if ike_awal < batas_efisien:
-        return {
-            "aktif"             : False,
-            "status"            : "sudah_efisien",
-            "zona_awal"         : zona_awal,
-            "zona_akhir"        : zona_awal,
-            "ike_awal"          : ike_awal,
-            "ike_akhir"         : ike_awal,
-            "target_ike"        : batas_cukup,
-            "total_kwh_akhir"   : kwh_awal,
-            "tagihan_akhir"     : int(tagihan_awal),
-            "emisi_akhir"       : emisi_awal,
-            "hemat_kwh"         : 0.0,
-            "hemat_rp"          : 0,
-            "hemat_emisi_kg"    : 0.0,
-            "persen_hemat_rp"   : 0.0,
-            "persen_hemat_emisi": 0.0,
-            "langkah"           : [],
-            "pesan"             : (
-                f"Konsumsi sudah dalam zona {zona_awal}. "
-                "Tidak perlu optimasi."
-            ),
-        }
+        return _bungkus_hasil(
+            False, "sudah_efisien", zona_awal, zona_awal, ike_awal, ike_awal,
+            batas_cukup, kvah_awal, kvah_awal, daya_va, pbjt, is_prabayar,
+            [], f"Konsumsi sudah dalam zona {zona_awal}. Tidak perlu optimasi.",
+        )
 
-    # ── Siapkan peralatan ─────────────────────────────────────────────────────
-    alat_tetap = ringkasan_dsm.get('tidak_fleksibel', [])
-    alat_raw   = ringkasan_dsm.get('fleksibel', [])
-
+    # ── Tidak ada peralatan fleksibel ────────────────────────────────────────
     if not alat_raw:
-        return {
-            "aktif"             : True,
-            "status"            : "tidak_tercapai",
-            "zona_awal"         : zona_awal,
-            "zona_akhir"        : zona_awal,
-            "ike_awal"          : ike_awal,
-            "ike_akhir"         : ike_awal,
-            "target_ike"        : _get_batas(ada_ac, "cukup_efisien"),
-            "total_kwh_akhir"   : kwh_awal,
-            "tagihan_akhir"     : int(tagihan_awal),
-            "emisi_akhir"       : emisi_awal,
-            "hemat_kwh"         : 0.0,
-            "hemat_rp"          : 0,
-            "hemat_emisi_kg"    : 0.0,
-            "persen_hemat_rp"   : 0.0,
-            "persen_hemat_emisi": 0.0,
-            "langkah"           : [],
-            "pesan"             : (
-                "Semua peralatan Tidak Fleksibel. "
-                "Tidak ada yang bisa dioptimasi secara otomatis."
-            ),
-        }
+        return _bungkus_hasil(
+            True, "tidak_tercapai", zona_awal, zona_awal, ike_awal, ike_awal,
+            batas_cukup, kvah_awal, kvah_awal, daya_va, pbjt, is_prabayar,
+            [], "Semua peralatan Tidak Fleksibel. Tidak ada yang bisa "
+                "dioptimasi secara otomatis.",
+        )
 
-    # Tambah field jam_saat_ini dan jam_minimum
+    # ── Siapkan peralatan fleksibel ──────────────────────────────────────────
     alat_flex = []
     for a in alat_raw:
         item = deepcopy(a)
-        item['jam_awal']     = a['jam']
-        item['jam_saat_ini'] = a['jam']
-        item['jam_minimum']  = max(
-            MIN_JAM,
-            round(a['jam'] * (1 - MAKS_KURANG_PCT), 1)
-        )
+        item["jam_awal"] = a["jam"]
+        item["jam_saat_ini"] = a["jam"]
+        item["jam_minimum"] = max(MIN_JAM, round(a["jam"] * (1 - MAKS_KURANG_PCT), 1))
         alat_flex.append(item)
 
-    # ── Iterasi 1: target Efisien ─────────────────────────────────────────────
-    berhasil, state = _greedy(
-        alat_tetap, alat_flex, luas_m2, ada_ac, "efisien"
-    )
-    status     = "efisien"
-    target_zona= "efisien"
+    # ── Iterasi 1: target Efisien ────────────────────────────────────────────
+    berhasil, state = _greedy(alat_tetap, alat_flex, luas_m2, ada_ac, "efisien")
+    status, target_zona = "efisien", "efisien"
 
-    # ── Iterasi 2: fallback ke Cukup Efisien ──────────────────────────────────
+    # ── Iterasi 2: fallback Cukup Efisien ────────────────────────────────────
     if not berhasil:
-        berhasil, state = _greedy(
-            alat_tetap, alat_flex, luas_m2, ada_ac, "cukup_efisien"
-        )
-        status     = "cukup_efisien" if berhasil else "tidak_tercapai"
-        target_zona= "cukup_efisien"
+        berhasil, state = _greedy(alat_tetap, alat_flex, luas_m2, ada_ac, "cukup_efisien")
+        status = "cukup_efisien" if berhasil else "tidak_tercapai"
+        target_zona = "cukup_efisien"
 
-    # ── Hitung hasil akhir ────────────────────────────────────────────────────
-    kwh_akhir     = _total_kwh(alat_tetap, state)
-    ike_akhir     = round(kwh_akhir / max(1.0, luas_m2), 4)
-    zona_akhir    = _label_zona(ike_akhir, ada_ac)
-    tagihan_akhir = _hitung_tagihan(kwh_akhir, tarif_kwh, pbjt, biaya_beban)
-    emisi_akhir   = _hitung_emisi(kwh_akhir)
+    # ── Hasil akhir ──────────────────────────────────────────────────────────
+    kvah_akhir = _total_kvah(alat_tetap, state)
+    ike_akhir = round(kvah_akhir / max(1.0, luas_m2), 4)
+    zona_akhir = _label_zona(ike_akhir, ada_ac)
 
-    hemat_kwh   = round(kwh_awal     - kwh_akhir,     3)
-    hemat_rp    = round(tagihan_awal - tagihan_akhir,  0)
-    hemat_emisi = round(emisi_awal   - emisi_akhir,    3)
-
-    pct_rp    = round(hemat_rp    / max(1, tagihan_awal) * 100, 1)
-    pct_emisi = round(hemat_emisi / max(1, emisi_awal)   * 100, 1)
-
-    # ── Susun langkah rekomendasi ─────────────────────────────────────────────
+    # ── Langkah per peralatan ────────────────────────────────────────────────
+    rate = _rate_per_kvah(daya_va, pbjt, is_prabayar)
     langkah = []
     for alat in state:
-        kurang = round(alat['jam_awal'] - alat['jam_saat_ini'], 1)
+        kurang = round(alat["jam_awal"] - alat["jam_saat_ini"], 1)
         if kurang <= 0:
             continue
-
-        jumlah = alat.get('jumlah', 1)
-        kwh_hemat  = round(alat['watt'] * kurang * jumlah * 30 / 1000, 3)
-        rp_hemat   = round(kwh_hemat * tarif_kwh * (1 + pbjt), 0)
-        emisi_hemat= round(kwh_hemat * FAKTOR_EMISI_JAMALI_OM, 3)
-
+        jumlah = alat.get("jumlah", 1)
+        kvah_hemat = round(alat["daya_semu_va"] * kurang * jumlah * HARI_PER_BULAN / 1000, 3)
         langkah.append({
-            "nama"           : alat['nama'],
-            "kategori"       : alat['kategori'],
-            "jam_awal"       : alat['jam_awal'],
-            "jam_rekomendasi": alat['jam_saat_ini'],
-            "kurang_jam"     : kurang,
-            "hemat_kwh"      : kwh_hemat,
-            "hemat_rp"       : int(rp_hemat),
-            "hemat_emisi_kg" : emisi_hemat,
+            "nama":            alat["nama"],
+            "kategori":        alat["kategori"],
+            "jam_awal":        alat["jam_awal"],
+            "jam_rekomendasi": alat["jam_saat_ini"],
+            "kurang_jam":      kurang,
+            "hemat_kvah":      kvah_hemat,
+            "hemat_rp":        int(round(kvah_hemat * rate, 0)),
+            "hemat_emisi_kg":  round(kvah_hemat * FAKTOR_EMISI_JAMALI_OM, 3),
         })
+    langkah.sort(key=lambda x: x["hemat_kvah"], reverse=True)
 
-    # Urutkan dari penghematan terbesar
-    langkah.sort(key=lambda x: x['hemat_kwh'], reverse=True)
-
-    # ── Pesan status ──────────────────────────────────────────────────────────
     pesan_map = {
-        "efisien"       : (
-            f"Berhasil! Konsumsi turun dari zona {zona_awal} "
-            f"ke zona Efisien (IKE ≤ {_get_batas(ada_ac, 'efisien')} "
-            "kWh/m²/bulan)."
+        "efisien": (
+            f"Berhasil. Konsumsi turun dari zona {zona_awal} ke zona Efisien "
+            f"(IKE <= {batas_efisien} kWh/m2/bulan)."
         ),
-        "cukup_efisien" : (
-            f"Target Efisien tidak tercapai dari zona {zona_awal}. "
-            "Sistem menurunkan target ke Cukup Efisien dan berhasil."
+        "cukup_efisien": (
+            f"Target Efisien tidak tercapai dari zona {zona_awal}. Sistem "
+            "menurunkan target ke Cukup Efisien dan berhasil."
         ),
         "tidak_tercapai": (
-            "Pengurangan maksimal sudah diterapkan namun IKE masih "
-            "di atas Cukup Efisien. Pertimbangkan mengganti peralatan "
-            "dengan yang lebih hemat energi (label SKEM bintang tinggi)."
+            "Pengurangan maksimal (50% jam per peralatan) sudah diterapkan "
+            "namun IKE masih di atas Cukup Efisien. Pertimbangkan mengganti "
+            "peralatan dengan label SKEM bintang tinggi."
         ),
     }
 
-    return {
-        "aktif"             : True,
-        "status"            : status,
-        "zona_awal"         : zona_awal,
-        "zona_akhir"        : zona_akhir,
-        "ike_awal"          : ike_awal,
-        "ike_akhir"         : ike_akhir,
-        "target_ike"        : _get_batas(ada_ac, target_zona),
-        "total_kwh_akhir"   : kwh_akhir,
-        "tagihan_akhir"     : int(tagihan_akhir),
-        "emisi_akhir"       : emisi_akhir,
-        "hemat_kwh"         : hemat_kwh,
-        "hemat_rp"          : int(hemat_rp),
-        "hemat_emisi_kg"    : hemat_emisi,
-        "persen_hemat_rp"   : pct_rp,
-        "persen_hemat_emisi": pct_emisi,
-        "langkah"           : langkah,
-        "pesan"             : pesan_map[status],
-    }
+    return _bungkus_hasil(
+        True, status, zona_awal, zona_akhir, ike_awal, ike_akhir,
+        _get_batas(ada_ac, target_zona), kvah_awal, kvah_akhir,
+        daya_va, pbjt, is_prabayar, langkah, pesan_map[status],
+    )

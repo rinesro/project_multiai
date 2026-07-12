@@ -160,7 +160,7 @@ def profil_ike(ike: float,
         ike_sets = {
             "rendah": lambda x: _trapmf(x,  0.00, 0.00, 0.84, 1.67),
             "sedang": lambda x: _trimf( x,  0.84, 1.67, 3.34),
-            "tinggi": lambda x: _trapmf(x,  2.50, 3.34, 15.0, 15.0),
+            "tinggi": lambda x: _trapmf(x,  2.50, 3.34, 1_000_000.0, 1_000_000.0),
         }
     else:
         # Batas ber-AC: SE<7.92 | E 7.92–12.08 | CE 12.08–14.58
@@ -168,7 +168,7 @@ def profil_ike(ike: float,
         ike_sets = {
             "rendah": lambda x: _trapmf(x,  0.00,  0.00,  7.92, 12.08),
             "sedang": lambda x: _trimf( x,  7.92, 12.08, 23.75),
-            "tinggi": lambda x: _trapmf(x, 14.58, 23.75, 60.0,  60.0),
+            "tinggi": lambda x: _trapmf(x, 14.58, 23.75, 1_000_000.0, 1_000_000.0),
         }
 
     # ── Himpunan fuzzy input: kWh per penghuni ───────────────────────────────
@@ -180,14 +180,14 @@ def profil_ike(ike: float,
         kwh_org_sets = {
             "rendah": lambda x: _trapmf(x,   0,   0,  35,  55),
             "sedang": lambda x: _trimf( x,  40,  75, 110),
-            "tinggi": lambda x: _trapmf(x,  90, 125, 400, 400),
+            "tinggi": lambda x: _trapmf(x,  90, 125, 1_000_000, 1_000_000),
         }
     else:
         # Ber-AC: konsumsi per orang wajar lebih tinggi
         kwh_org_sets = {
             "rendah": lambda x: _trapmf(x,   0,   0,  80, 130),
             "sedang": lambda x: _trimf( x,  100, 200, 350),
-            "tinggi": lambda x: _trapmf(x,  280, 400, 1500, 1500),
+            "tinggi": lambda x: _trapmf(x,  280, 400, 1_000_000, 1_000_000),
         }
 
     # ── Himpunan fuzzy output (universe 0–100) ────────────────────────────────
