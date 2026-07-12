@@ -1,65 +1,93 @@
 """
 models/dsm_classifier.py
 =========================
-Pembungkus LightGBM untuk klasifikasi DSM peralatan listrik.
+Pembungkus LightGBM untuk klasifikasi DSM peralatan listrik — Lapis 2.
 
 Label DSM (2 kelas):
-    Fleksibel       — daya/durasi bisa dikurangi → masuk brute force
-    Tidak Fleksibel — harus menyala saat dibutuhkan → skip optimizer
+    Fleksibel       — daya/durasi bisa dikurangi   -> masuk brute force
+    Tidak Fleksibel — harus menyala saat dibutuhkan -> dilewati optimizer
 
-Input per peralatan:
-    nama      (str)   : nama bebas dari user
-    kategori  (str)   : salah satu dari 8 pilihan dropdown
-    tegangan  (float) : tegangan (V)
-    arus      (float) : arus (A)
-    jam       (float) : jam pemakaian per hari
 
-Output per peralatan:
-    dict berisi nama, label_dsm, watt, kwh_bulan, metode, valid
+YANG BERUBAH dari versi sebelumnya, dan alasannya
+-------------------------------------------------
+Logika model, fallback, dan konsistensi kategori LightGBM TIDAK berubah.
+Hanya empat hal yang menyesuaikan Lapis 1 yang sudah dirombak.
+
+1. Impor dari core.kalkulator (dulu core.kalkulasi). Modul berganti nama.
+   Hack sys.path dihapus; paket sudah proper.
+
+2. Field peralatan mengikuti keluaran Lapis 1 baru:
+       watt      -> daya_semu_va   (V x I, satuan VA)
+       kwh_bulan -> kvah_bulan     (energi semu bulanan, kVAh)
+   Nilai yang dikirim ke model TIDAK berubah; hanya nama fieldnya.
+
+3. Validasi input dihapus dari sini. Bentuk/rentang data sudah diperiksa
+   app.py sebelum sampai ke Lapis 2. Modul ini mengasumsikan data bersih.
+
+4. Kategori valid diambil dari core.konstanta.KATEGORI_PERALATAN, bukan
+   salinan lokal, agar satu sumber kebenaran.
+
+
+CATATAN PENTING soal fitur model
+--------------------------------
+Kolom fitur `Daya_W` yang dikirim ke model diisi dengan DAYA SEMU (V x I,
+satuan VA), karena model dilatih pada nilai itu. Nama kolomnya tetap `Daya_W`
+(nama saat pelatihan) walau isinya sebenarnya VA — mengganti nama kolom akan
+membuat model tidak mengenalinya. JANGAN mengirim daya nyata (V x I x cos phi)
+ke sini; distribusi fiturnya akan berbeda dari data latih dan prediksi menjadi
+tidak valid tanpa memunculkan error apa pun.
+
+Fitur Arus_A dan Daya_W dikirim PER-UNIT (tidak dikali jumlah), supaya nilainya
+tetap berada di dalam rentang data latih.
+
+Kategori pandas 'category' aman: booster LightGBM menyimpan urutan kategori
+data latih (pandas_categorical) dan me-remap saat predict, sehingga batch yang
+tidak memuat seluruh 8 kategori tetap menghasilkan prediksi yang benar.
 """
+
+from pathlib import Path
 
 import joblib
 import pandas as pd
-import numpy as np
-from pathlib import Path
-import sys as _sys
 
-_BASE = Path(__file__).parent.parent
-if str(_BASE) not in _sys.path:
-    _sys.path.insert(0, str(_BASE))
-from core.kalkulasi import hitung_watt, hitung_kwh_alat
+from core.konstanta import KATEGORI_PERALATAN
+from core.kalkulator import hitung_daya_semu, hitung_kvah_alat
 
-# ── Label model → label sistem ────────────────────────────────────────────────
+# ── Label model -> label sistem ───────────────────────────────────────────────
 LABEL_MAP = {
-    "Fleksibel"      : "Fleksibel",
+    "Fleksibel":       "Fleksibel",
     "Tidak Fleksibel": "Tidak Fleksibel",
 }
 
-# ── Kategori valid sesuai dropdown app.py ─────────────────────────────────────
-KATEGORI_VALID = {
-    "Pendingin",
-    "Pemanas",
-    "Laundry",
-    "Memasak",
-    "Hiburan/Elektronik",
-    "Pencahayaan",
-    "Pompa/Motor",
-    "Lainnya",
-}
-
 # ── Path model (relatif dari root proyek) ─────────────────────────────────────
-_PATH_MODEL   = _BASE / "data" / "dsm_lightgbm_model.pkl"
+_BASE = Path(__file__).resolve().parents[1]
+_PATH_MODEL = _BASE / "data" / "dsm_lightgbm_model.pkl"
 _PATH_ENCODER = _BASE / "data" / "dsm_target_encoder.pkl"
+
+# Urutan kolom fitur — harus sama persis dengan saat pelatihan.
+_FITUR = ["Kategori", "Tegangan_V", "Arus_A", "Daya_W", "Jam_Per_Hari"]
 
 
 class DSMClassifier:
     """Pembungkus LightGBM DSM classifier — 2 label."""
 
+    # Fallback berbasis aturan bila model gagal dimuat.
+    _FALLBACK_MAP = {
+        "Pendingin":          "Fleksibel",
+        "Pemanas":            "Fleksibel",
+        "Laundry":            "Fleksibel",
+        "Pompa/Motor":        "Fleksibel",
+        "Memasak":            "Tidak Fleksibel",
+        "Hiburan/Elektronik": "Tidak Fleksibel",
+        "Pencahayaan":        "Tidak Fleksibel",
+        "Lainnya":            "Tidak Fleksibel",
+    }
+
     def __init__(self):
-        self._model   = None
+        self._model = None
         self._encoder = None
-        self._loaded  = False
-        self._error   = None
+        self._loaded = False
+        self._error = None
         self._muat_model()
 
     def _muat_model(self):
@@ -68,183 +96,122 @@ class DSMClassifier:
                 raise FileNotFoundError(f"Model tidak ditemukan: {_PATH_MODEL}")
             if not _PATH_ENCODER.exists():
                 raise FileNotFoundError(f"Encoder tidak ditemukan: {_PATH_ENCODER}")
-            self._model   = joblib.load(_PATH_MODEL)
+            self._model = joblib.load(_PATH_MODEL)
             self._encoder = joblib.load(_PATH_ENCODER)
-            self._loaded  = True
-        except Exception as e:
-            self._error  = str(e)
+            self._loaded = True
+        except Exception as e:      # noqa: BLE001 — dilaporkan lewat properti
+            self._error = str(e)
             self._loaded = False
 
     @property
     def siap(self) -> bool:
+        """False artinya sistem berjalan dengan fallback if-else, BUKAN LightGBM."""
         return self._loaded
 
     @property
     def pesan_error(self) -> str:
         return self._error or ""
 
-    # ── Fallback rule-based ───────────────────────────────────────────────────
-    _FALLBACK_MAP = {
-        "Pendingin"          : "Fleksibel",
-        "Pemanas"            : "Fleksibel",
-        "Laundry"            : "Fleksibel",
-        "Pompa/Motor"        : "Fleksibel",
-        "Memasak"            : "Tidak Fleksibel",
-        "Hiburan/Elektronik" : "Tidak Fleksibel",
-        "Pencahayaan"        : "Tidak Fleksibel",
-        "Lainnya"            : "Tidak Fleksibel",
-    }
-
     def _fallback(self, kategori: str) -> str:
         return self._FALLBACK_MAP.get(kategori, "Tidak Fleksibel")
 
-    def _validasi_alat(self, alat: dict) -> dict:
-        hasil = alat.copy()
-
-        # Pakai 'watt' yang sudah dihitung Lapis 1 (app.py) kalau tersedia
-        # di payload['alat_valid'] — tidak dihitung ulang di sini.
-        # Fallback ke core.kalkulasi kalau DSMClassifier dipanggil
-        # berdiri sendiri (mis. dari test) tanpa lewat Lapis 1 dulu.
-        if 'watt' not in hasil:
-            hasil['watt'] = hitung_watt(
-                alat.get('tegangan', 0), alat.get('arus', 0)
+    def _lengkapi(self, alat: dict) -> dict:
+        """
+        Melengkapi field turunan bila DSMClassifier dipanggil dengan data mentah
+        (mis. dari pengujian) tanpa melewati Lapis 1. Bila data datang dari
+        Lapis 1, field daya_semu_va dan kvah_bulan sudah ada dan dipakai apa
+        adanya — tidak dihitung ulang, tetap satu sumber kebenaran.
+        """
+        hasil = dict(alat)
+        if "daya_semu_va" not in hasil:
+            hasil["daya_semu_va"] = hitung_daya_semu(
+                alat.get("tegangan", 0), alat.get("arus", 0)
             )
-
-        hasil['valid'] = True
-        hasil['pesan'] = ""
-
-        if alat.get('kategori') not in KATEGORI_VALID:
-            hasil['valid'] = False
-            hasil['pesan'] = f"Kategori '{alat.get('kategori')}' tidak dikenal."
-
-        if hasil['watt'] <= 0:
-            hasil['valid'] = False
-            hasil['pesan'] = "Tegangan dan arus harus lebih dari 0."
-
-        if not (0 < alat.get('jam', 0) <= 24):
-            hasil['valid'] = False
-            hasil['pesan'] = "Jam pemakaian harus antara 0 dan 24."
-
+        if "kvah_bulan" not in hasil:
+            hasil["kvah_bulan"] = hitung_kvah_alat(
+                hasil["daya_semu_va"], alat.get("jam", 0), alat.get("jumlah", 1)
+            )
         return hasil
 
     def prediksi_batch(self, daftar_alat: list) -> list:
         """
         Memprediksi label DSM untuk semua peralatan sekaligus.
 
-        Idealnya dipanggil dengan payload['alat_valid'] hasil Lapis 1
-        (app.py) yang sudah punya 'watt' dan 'kwh_bulan' terhitung —
-        supaya kwh_bulan TIDAK dihitung ulang di sini dan tetap satu
-        sumber kebenaran. Kalau dipanggil dengan data mentah (tanpa
-        'watt'/'kwh_bulan'), fungsi ini tetap bisa jalan dengan fallback
-        ke core.kalkulasi (dipakai untuk pengujian berdiri sendiri).
+        Idealnya dipanggil dengan keluaran core.kalkulator.rincian_peralatan()
+        yang sudah punya daya_semu_va dan kvah_bulan — supaya tidak ada rumus
+        yang dihitung ulang di sini.
 
-        Fitur yang dikirim ke model tetap arus PER-UNIT (bukan dikali
-        jumlah), supaya prediksi tidak keluar dari rentang data latih.
+        Data dianggap sudah divalidasi app.py. Kategori tak dikenal tetap
+        ditangani lewat fallback sebagai jaring pengaman, bukan sebagai
+        validasi utama.
 
         Returns list of dict per peralatan:
-            nama, kategori, tegangan, arus, watt, jam, jumlah,
-            kwh_bulan, label_dsm, metode, valid, pesan
+            nama, kategori, tegangan, arus, jam, jumlah,
+            daya_semu_va, kvah_bulan, label_dsm, metode
         """
         if not daftar_alat:
             return []
 
-        hasil_list      = []
-        alat_valid_idx  = []
-        rows_untuk_pred = []
+        alat_diproses = [self._lengkapi(a) for a in daftar_alat]
 
-        alat_diproses = [self._validasi_alat(a) for a in daftar_alat]
-
+        # Baris fitur hanya untuk peralatan berkategori dikenal.
+        idx_dikenal, rows = [], []
         for i, alat in enumerate(alat_diproses):
-            if alat['valid']:
-                alat_valid_idx.append(i)
-                rows_untuk_pred.append({
-                    'Kategori'    : alat['kategori'],
-                    'Tegangan_V'  : alat['tegangan'],
-                    'Arus_A'      : alat['arus'],   # per-unit, bukan × jumlah
-                    'Daya_W'      : alat['watt'],   # per-unit
-                    'Jam_Per_Hari': alat['jam'],
+            if alat.get("kategori") in KATEGORI_PERALATAN:
+                idx_dikenal.append(i)
+                rows.append({
+                    "Kategori":     alat["kategori"],
+                    "Tegangan_V":   alat["tegangan"],
+                    "Arus_A":       alat["arus"],          # per-unit
+                    "Daya_W":       alat["daya_semu_va"],  # daya SEMU, sesuai data latih
+                    "Jam_Per_Hari": alat["jam"],
                 })
 
-        # Prediksi batch
         prediksi_model = {}
-        if self._loaded and rows_untuk_pred:
+        if self._loaded and rows:
             try:
-                df_pred = pd.DataFrame(rows_untuk_pred)
-                df_pred['Kategori'] = df_pred['Kategori'].astype('category')
-                y_enc   = self._model.predict(
-                    df_pred[['Kategori','Tegangan_V','Arus_A',
-                              'Daya_W','Jam_Per_Hari']]
-                )
+                df = pd.DataFrame(rows)
+                df["Kategori"] = df["Kategori"].astype("category")
+                y_enc = self._model.predict(df[_FITUR])
                 y_label = self._encoder.inverse_transform(y_enc)
-                for j, idx in enumerate(alat_valid_idx):
-                    prediksi_model[idx] = LABEL_MAP.get(
-                        y_label[j], "Tidak Fleksibel"
-                    )
-            except Exception as e:
-                self._error    = f"Prediksi gagal: {e}"
+                for j, idx in enumerate(idx_dikenal):
+                    prediksi_model[idx] = LABEL_MAP.get(y_label[j], "Tidak Fleksibel")
+            except Exception as e:      # noqa: BLE001
+                self._error = f"Prediksi gagal: {e}"
                 prediksi_model = {}
 
-        # Rakit hasil
+        hasil_list = []
         for i, alat in enumerate(alat_diproses):
-            jumlah = alat.get('jumlah', 1)
-
-            # Pakai kwh_bulan dari Lapis 1 kalau sudah ada (sumber
-            # kebenaran) — TIDAK dihitung ulang. Fallback ke core
-            # kalau dipanggil tanpa lewat Lapis 1.
-            if 'kwh_bulan' in alat:
-                kwh_bulan = alat['kwh_bulan']
+            if i in prediksi_model:
+                label, metode = prediksi_model[i], "model"
             else:
-                kwh_bulan = hitung_kwh_alat(
-                    alat['watt'], alat.get('jam', 0), jumlah
-                )
-
-            if not alat['valid']:
-                label  = self._fallback(alat.get('kategori', 'Lainnya'))
-                metode = 'fallback'
-            elif i in prediksi_model:
-                label  = prediksi_model[i]
-                metode = 'model'
-            else:
-                label  = self._fallback(alat.get('kategori', 'Lainnya'))
-                metode = 'fallback'
+                label, metode = self._fallback(alat.get("kategori", "Lainnya")), "fallback"
 
             hasil_list.append({
-                'nama'     : alat.get('nama', f'Peralatan {i+1}'),
-                'kategori' : alat.get('kategori', ''),
-                'tegangan' : alat.get('tegangan', 0),
-                'arus'     : alat.get('arus', 0),
-                'watt'     : alat['watt'],
-                'jam'      : alat.get('jam', 0),
-                'jumlah'   : jumlah,
-                'kwh_bulan': kwh_bulan,
-                'label_dsm': label,
-                'metode'   : metode,
-                'valid'    : alat['valid'],
-                'pesan'    : alat['pesan'],
+                "nama":         alat.get("nama", f"Peralatan {i + 1}"),
+                "kategori":     alat.get("kategori", ""),
+                "tegangan":     alat.get("tegangan", 0),
+                "arus":         alat.get("arus", 0),
+                "jam":          alat.get("jam", 0),
+                "jumlah":       alat.get("jumlah", 1),
+                "daya_semu_va": alat["daya_semu_va"],
+                "kvah_bulan":   alat["kvah_bulan"],
+                "label_dsm":    label,
+                "metode":       metode,
             })
 
         return hasil_list
 
     def ringkasan_dsm(self, hasil_prediksi: list) -> dict:
         """
-        Memisahkan peralatan berdasarkan label DSM.
-        Output dikirim ke optimizer/brute_force.py.
-
-        Returns:
-            dict:
-                fleksibel        : list peralatan yang bisa dioptimasi
-                tidak_fleksibel  : list peralatan yang tidak disentuh
-                total_kwh_fleksibel : total kWh dari peralatan fleksibel
+        Memisahkan peralatan berdasarkan label DSM. Output dikirim ke
+        optimizer/brute_force.py, yang mengharapkan tiap peralatan punya
+        daya_semu_va dan kvah_bulan.
         """
-        fleksibel       = [a for a in hasil_prediksi
-                           if a['label_dsm'] == 'Fleksibel']
-        tidak_fleksibel = [a for a in hasil_prediksi
-                           if a['label_dsm'] == 'Tidak Fleksibel']
-
+        fleksibel = [a for a in hasil_prediksi if a["label_dsm"] == "Fleksibel"]
+        tidak_fleksibel = [a for a in hasil_prediksi if a["label_dsm"] == "Tidak Fleksibel"]
         return {
-            'fleksibel'           : fleksibel,
-            'tidak_fleksibel'     : tidak_fleksibel,
-            'total_kwh_fleksibel' : round(
-                sum(a['kwh_bulan'] for a in fleksibel), 3
-            ),
+            "fleksibel":            fleksibel,
+            "tidak_fleksibel":      tidak_fleksibel,
+            "total_kvah_fleksibel": round(sum(a["kvah_bulan"] for a in fleksibel), 3),
         }
