@@ -5,6 +5,7 @@ import google.generativeai as genai
 import warnings
 import sys as _sys
 from pathlib import Path as _Path
+from datetime import date
 
 warnings.filterwarnings("ignore")
 
@@ -56,7 +57,13 @@ _sys.path.insert(0, str(_Path(__file__).parent))
 from core.kalkulasi import (
     get_tarif, hitung_biaya_beban, hitung_watt, hitung_kwh_alat,
     hitung_tagihan, hitung_emisi, hitung_ike, hitung_kwh_per_org,
-    deteksi_anomali, GOLONGAN_DAYA, PBJT_RUMAH_TANGGA,
+    hitung_kwh_dari_token, hitung_hari_berjalan,
+    hitung_estimasi_kwh_periode, hitung_saldo_token_awal,
+    hitung_token_terpakai_aktual,
+    GOLONGAN_DAYA, PBJT_RUMAH_TANGGA,
+)
+from core.anomaly_detector import (
+    evaluasi_anomali_pascabayar, evaluasi_anomali_prabayar,
 )
 from fuzzy.ike_profiler      import profil_ike
 from models.dsm_classifier   import DSMClassifier
@@ -94,12 +101,22 @@ class DataIngestionValidatorAgent:
         self.PBJT        = PBJT_RUMAH_TANGGA  # alias, dipakai pipeline & optimasi()
         self.BIAYA_BEBAN = hitung_biaya_beban(daya_va, is_prabayar)
 
-    def proses_data(self, luas_rumah, penghuni, tagihan_asli, daftar_alat):
+    def proses_data(self, luas_rumah, penghuni, daftar_alat,
+                    tagihan_asli: float = None,
+                    token_context: dict = None):
         """
         Parameters:
             daftar_alat : list of dict, tiap dict berisi
                           nama, kategori, tegangan, arus, jam, jumlah
                           ('jumlah' opsional, default 1 kalau tidak ada)
+            tagihan_asli : Rp — WAJIB diisi kalau self.is_prabayar False.
+            token_context : dict — WAJIB diisi kalau self.is_prabayar True.
+                {
+                  'tanggal_pembelian' : date,
+                  'sisa_sebelum_beli' : float (kWh),
+                  'nominal_dibeli'    : float (Rp, sesuai struk),
+                  'sisa_saat_ini'     : float (kWh),
+                }
         """
         total_kwh  = 0.0
         alat_valid = []
@@ -128,9 +145,8 @@ class DataIngestionValidatorAgent:
         ike           = hitung_ike(total_kwh, luas_rumah)
         kwh_per_org   = hitung_kwh_per_org(total_kwh, penghuni)
         emisi_sebelum = hitung_emisi(total_kwh)
-        anomali       = deteksi_anomali(tagihan_asli, rincian_tagihan['total'])
 
-        return {
+        payload = {
             "total_kwh"      : total_kwh,
             "biaya_pemakaian": rincian_tagihan['biaya_pemakaian'],
             "biaya_pbjt"     : rincian_tagihan['biaya_pbjt'],
@@ -139,12 +155,75 @@ class DataIngestionValidatorAgent:
             "ike"            : ike,
             "kwh_per_org"    : kwh_per_org,
             "emisi_sebelum"  : emisi_sebelum,
-            "is_anomali"     : anomali['is_anomali'],
-            "selisih_pct"    : anomali['selisih_pct'],
             "tarif_digunakan": self.TARIF_KWH,
             "golongan_daya"  : f"{self.daya_va} VA",
             "alat_valid"     : alat_valid,
+            "is_prabayar"    : self.is_prabayar,
         }
+
+        # ── Cabang anomali: prabayar (token/kWh) vs pascabayar (Rp) ──────────
+        # Basisnya beda total: pascabayar bandingkan Rp vs Rp memakai siklus
+        # tagihan tetap 30 hari; prabayar bandingkan kWh vs kWh dari selisih
+        # saldo token, di-skala ke jumlah hari aktual sejak top-up (siklus
+        # top-up tidak selalu 30 hari). Lihat core/anomaly_detector.py.
+        if self.is_prabayar:
+            if token_context is None:
+                raise ValueError(
+                    "token_context wajib diisi untuk meteran prabayar"
+                )
+
+            kwh_dari_pembelian = hitung_kwh_dari_token(
+                token_context['nominal_dibeli'], self.TARIF_KWH, self.PBJT
+            )
+            saldo_awal = hitung_saldo_token_awal(
+                token_context['sisa_sebelum_beli'], kwh_dari_pembelian
+            )
+            hari_berjalan = hitung_hari_berjalan(
+                token_context['tanggal_pembelian']
+            )
+            token_terpakai_aktual = hitung_token_terpakai_aktual(
+                saldo_awal, token_context['sisa_saat_ini']
+            )
+            # max(hari_berjalan, 0) — kalau tanggal tidak valid (negatif),
+            # estimasi tetap ditampilkan sebagai 0, pesan errornya sudah
+            # ditangani terpisah oleh evaluasi_anomali_prabayar().
+            estimasi_terpakai = hitung_estimasi_kwh_periode(
+                total_kwh, max(hari_berjalan, 0)
+            )
+
+            anomali = evaluasi_anomali_prabayar(
+                token_terpakai_aktual, estimasi_terpakai, hari_berjalan
+            )
+
+            payload["token_context"] = {
+                "tanggal_pembelian"          : token_context['tanggal_pembelian'],
+                "sisa_sebelum_beli"          : token_context['sisa_sebelum_beli'],
+                "nominal_dibeli"             : token_context['nominal_dibeli'],
+                "sisa_saat_ini"              : token_context['sisa_saat_ini'],
+                "kwh_dari_pembelian"         : kwh_dari_pembelian,
+                "saldo_awal"                 : saldo_awal,
+                "hari_berjalan"              : hari_berjalan,
+                "token_terpakai_aktual"      : token_terpakai_aktual,
+                "estimasi_terpakai_perangkat": estimasi_terpakai,
+            }
+        else:
+            if tagihan_asli is None:
+                raise ValueError(
+                    "tagihan_asli wajib diisi untuk meteran pascabayar"
+                )
+            anomali = evaluasi_anomali_pascabayar(
+                tagihan_asli, rincian_tagihan['total']
+            )
+            payload["tagihan_asli"] = tagihan_asli
+
+        # Skema status seragam untuk kedua cabang — Lapis 1 (render) tidak
+        # perlu tahu jenis meteran untuk menampilkan status anomali.
+        payload["status_anomali"] = anomali["status"]
+        payload["selisih_pct"]    = anomali["selisih_pct"]
+        payload["pesan_anomali"]  = anomali["pesan"]
+        payload["is_anomali"]     = anomali["status"] == "anomali"
+
+        return payload
 
 
 # ============================================================
@@ -159,6 +238,32 @@ def load_dsm():
 # ============================================================
 # GEN AI — GEMINI
 # ============================================================
+
+# ============================================================
+# HELPER FORMAT HASIL OPTIMASI — token (prabayar) vs Rp (pascabayar)
+# ============================================================
+# Optimizer (optimizer/brute_force.py) TIDAK berubah — tetap menghitung
+# hemat_kwh & hemat_rp sekaligus untuk kedua jenis meteran. Yang beda
+# cuma cara MENAMPILKANNYA. Dipusatkan di sini supaya narasi Gemini dan
+# render utama selalu konsisten — tidak ditulis ulang di dua tempat.
+
+def _format_hemat_langkah(l: dict, is_prabayar: bool) -> str:
+    """Format penghematan satu langkah rekomendasi peralatan."""
+    if is_prabayar:
+        return f"hemat {l['hemat_kwh']} kWh token"
+    return f"hemat Rp {l['hemat_rp']:,}/bulan"
+
+
+def _format_hemat_total(hasil_opt: dict, is_prabayar: bool) -> str:
+    """Format ringkasan total penghematan hasil optimasi."""
+    if is_prabayar:
+        return (
+            f"{hasil_opt['hemat_kwh']} kWh/bulan "
+            f"(≈ Rp {hasil_opt['hemat_rp']:,}, "
+            f"{hasil_opt['persen_hemat_rp']}%)"
+        )
+    return f"Rp {hasil_opt['hemat_rp']:,}/bulan ({hasil_opt['persen_hemat_rp']}%)"
+
 
 def generate_gemini_narasi(api_key       : str,
                             label_ike     : str,
@@ -202,34 +307,36 @@ def generate_gemini_narasi(api_key       : str,
             langkah_str = "\n".join(
                 f"  - {l['nama']}: kurangi dari {l['jam_awal']} jam → "
                 f"{l['jam_rekomendasi']} jam "
-                f"(hemat Rp {l['hemat_rp']:,}/bulan, "
+                f"({_format_hemat_langkah(l, payload['is_prabayar'])}, "
                 f"kurangi {l['hemat_emisi_kg']} kgCO₂/bulan)"
                 for l in hasil_opt['langkah']
             )
+            label_hemat = "Hemat token" if payload['is_prabayar'] else "Hemat biaya"
             konteks_opt = f"""
 Hasil Optimasi Penggunaan (Brute Force IKE Optimizer):
   Status       : Berhasil mencapai zona {opt_status.replace('_', ' ').title()}
   IKE sebelum  : {hasil_opt['ike_awal']} → IKE setelah: {hasil_opt['ike_akhir']} kWh/m²/bulan
-  Hemat biaya  : Rp {hasil_opt['hemat_rp']:,}/bulan ({hasil_opt['persen_hemat_rp']}%)
+  {label_hemat} : {_format_hemat_total(hasil_opt, payload['is_prabayar'])}
   Kurang emisi : {hasil_opt['hemat_emisi_kg']} kgCO₂/bulan ({hasil_opt['persen_hemat_emisi']}%)
   Emisi sesudah: {hasil_opt['emisi_akhir']} kgCO₂/bulan
 Langkah spesifik yang direkomendasikan:
 {langkah_str}"""
         else:
+            label_hemat = "Hemat token" if payload['is_prabayar'] else "Hemat biaya"
             konteks_opt = f"""
 Hasil Optimasi: Target IKE tidak tercapai meski semua peralatan fleksibel sudah dimaksimalkan.
   IKE terbaik yang dicapai: {hasil_opt['ike_akhir']} kWh/m²/bulan
-  Hemat biaya  : Rp {hasil_opt['hemat_rp']:,}/bulan ({hasil_opt['persen_hemat_rp']}%)
+  {label_hemat} : {_format_hemat_total(hasil_opt, payload['is_prabayar'])}
   Kurang emisi : {hasil_opt['hemat_emisi_kg']} kgCO₂/bulan
   Saran        : Pertimbangkan mengganti peralatan dengan label SKEM bintang tinggi."""
     else:
         konteks_opt = "Optimasi tidak diperlukan — konsumsi sudah dalam zona efisien."
 
-    anomali_str  = (
-        f"TERDETEKSI — selisih {payload['selisih_pct']}% dari tagihan asli. "
-        "Kemungkinan ada perangkat yang belum diinput atau kebocoran arus."
-        if payload['is_anomali']
-        else "Normal"
+    # pesan_anomali sudah lengkap & sesuai domain (Rp/kWh) dari
+    # core/anomaly_detector.py — tidak perlu disusun ulang di sini.
+    anomali_str       = payload['pesan_anomali']
+    jenis_meteran_str = (
+        "Prabayar (Token)" if payload['is_prabayar'] else "Pascabayar (Tagihan)"
     )
     fokus_str    = " + ".join(intent_user) if intent_user else "Efisiensi Umum"
     emisi_sblm   = payload['emisi_sebelum']
@@ -241,7 +348,8 @@ suportif, dan berbasis data regulasi resmi Indonesia.
 Teks ini muncul TEPAT DI BAWAH dasbor metrik angka di aplikasi web.
 
 DATA ANALISIS:
-- Anomali tagihan     : {anomali_str}
+- Jenis meteran       : {jenis_meteran_str}
+- Status anomali      : {anomali_str}
 - Profil IKE          : {label_ike} (IKE {payload['ike']:.4f} kWh/m²/bulan)
 - Emisi sekarang      : {emisi_sblm['emisi_kg_bulan']} kgCO₂/bulan \
 ({emisi_sblm['emisi_kg_tahun']} kgCO₂/tahun)
@@ -266,6 +374,9 @@ dan SDG 13 (aksi iklim) secara natural, bukan sebagai daftar.
 6. Gunakan bahasa Indonesia yang hangat, mudah dipahami, \
 dan tidak terlalu teknis.
 7. Panjang respons: 3–4 paragraf, tidak perlu bullet point.
+8. Kalau jenis meteran Prabayar (Token), JANGAN gunakan istilah \
+"tagihan" — pakai "saldo token" atau "penggunaan listrik". Kalau \
+Pascabayar, tetap pakai istilah "tagihan" seperti biasa.
 """
     response = model.generate_content(prompt)
     return response.text
@@ -321,22 +432,13 @@ st.markdown(
 )
 
 # ============================================================
-# INPUT 1 — PROFIL RUMAH TANGGA
+# INPUT 1 — DAYA & METERAN
+# Ditaruh SEBELUM profil rumah tangga karena field riwayat
+# pemakaian di Section 2 bercabang tergantung jenis meteran
+# (prabayar butuh field berbeda dari pascabayar).
 # ============================================================
 
-st.header("1. Profil Rumah Tangga")
-c1, c2, c3 = st.columns(3)
-with c1: luas_rumah   = st.number_input("Luas Bangunan (m²)", 10, 500, 45)
-with c2: penghuni     = st.number_input("Jumlah Penghuni", 1, 20, 3)
-with c3: tagihan_asli = st.number_input(
-    "Tagihan Bulan Lalu (Rp)", 50_000, 10_000_000, 600_000
-)
-
-# ============================================================
-# INPUT 2 — DAYA & METERAN
-# ============================================================
-
-st.header("2. Informasi Daya & Meteran")
+st.header("1. Informasi Daya & Meteran")
 c4, c5 = st.columns(2)
 with c4:
     daya_va = st.selectbox(
@@ -362,6 +464,76 @@ st.info(
     f"Biaya beban: "
     f"{'Rp 0 (prabayar)' if is_prabayar else f'Rp {bb_aktif:,.0f}/bulan'}"
 )
+
+# ============================================================
+# INPUT 2 — PROFIL RUMAH TANGGA & RIWAYAT PEMAKAIAN
+# Field riwayat pemakaian BERCABANG tergantung jenis meteran:
+#   - Pascabayar : tagihan bulan lalu (Rp), siklus tetap ~30 hari.
+#   - Prabayar   : saldo token, karena siklus top-up TIDAK tetap
+#                  30 hari — dipakai untuk deteksi kebocoran arus
+#                  lewat selisih saldo, bukan lewat tagihan Rp.
+# ============================================================
+
+st.header("2. Profil Rumah Tangga & Riwayat Pemakaian")
+c1, c2 = st.columns(2)
+with c1: luas_rumah = st.number_input("Luas Bangunan (m²)", 10, 500, 45)
+with c2: penghuni   = st.number_input("Jumlah Penghuni", 1, 20, 3)
+
+if is_prabayar:
+    st.caption(
+        "Data token dipakai untuk deteksi anomali — membandingkan "
+        "konsumsi aktual (dari selisih saldo token) dengan estimasi "
+        "dari daftar peralatan di Section 4."
+    )
+    t1, t2 = st.columns(2)
+    with t1:
+        tanggal_pembelian = st.date_input(
+            "Tanggal Pembelian Token Terakhir",
+            value=date.today(),
+            max_value=date.today(),
+            help="Tanggal top-up yang dijadikan titik awal periode analisis"
+        )
+        sisa_sebelum_beli = st.number_input(
+            "Sisa Token Sebelum Beli (kWh)",
+            min_value=0.0, value=5.0, step=0.1,
+            help="Sisa kWh di meteran TEPAT SEBELUM top-up terakhir"
+        )
+    with t2:
+        nominal_dibeli = st.number_input(
+            "Nominal Token Dibeli (Rp)",
+            min_value=0, value=100_000, step=5_000,
+            help="Sesuai struk/nominal token — BUKAN termasuk biaya "
+                 "admin bank/e-wallet"
+        )
+        sisa_saat_ini = st.number_input(
+            "Sisa Token Saat Ini (kWh)",
+            min_value=0.0, value=20.0, step=0.1,
+            help="Sisa kWh di meteran HARI INI, saat analisis dilakukan"
+        )
+
+    kwh_preview_token = hitung_kwh_dari_token(
+        nominal_dibeli, tarif_aktif, PBJT_RUMAH_TANGGA
+    )
+    hari_preview = hitung_hari_berjalan(tanggal_pembelian)
+    p1, p2 = st.columns(2)
+    p1.metric("Estimasi kWh dari Nominal Token", f"{kwh_preview_token:.2f} kWh")
+    p2.metric(
+        "Hari Sejak Pembelian",
+        f"{hari_preview} hari" if hari_preview >= 0 else "⚠️ Tanggal tidak valid"
+    )
+
+    token_context = {
+        "tanggal_pembelian": tanggal_pembelian,
+        "sisa_sebelum_beli": sisa_sebelum_beli,
+        "nominal_dibeli"   : nominal_dibeli,
+        "sisa_saat_ini"    : sisa_saat_ini,
+    }
+    tagihan_asli = None
+else:
+    tagihan_asli = st.number_input(
+        "Tagihan Bulan Lalu (Rp)", 50_000, 10_000_000, 600_000
+    )
+    token_context = None
 
 # ============================================================
 # INPUT 3 — PREFERENSI OPTIMASI
@@ -493,11 +665,13 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
 
     daftar_perangkat = st.session_state.daftar_perangkat_saved
 
-    with st.spinner("⚙️ Lapis 1 — Kalkulasi tagihan & deteksi anomali..."):
+    with st.spinner("⚙️ Lapis 1 — Kalkulasi & deteksi anomali..."):
         # ── LAPIS 1: Kalkulasi & Anomali ─────────────────────────────────────
         agent   = DataIngestionValidatorAgent(int(daya_va), is_prabayar)
         payload = agent.proses_data(
-            luas_rumah, penghuni, tagihan_asli, daftar_perangkat
+            luas_rumah, penghuni, daftar_perangkat,
+            tagihan_asli  = tagihan_asli,
+            token_context = token_context,
         )
 
     with st.spinner("🧠 Lapis 2 — Klasifikasi IKE & DSM..."):
@@ -552,20 +726,28 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
     st.divider()
     st.subheader("📊 Hasil Analisis")
 
-    # ── Anomali ───────────────────────────────────────────────────────────────
-    if payload['is_anomali']:
-        st.error(
-            f"⚠️ Anomali terdeteksi — selisih estimasi vs tagihan asli "
-            f"{payload['selisih_pct']}% (ambang batas: 15%). "
-            "Kemungkinan ada perangkat yang belum diinput atau indikasi "
-            "kebocoran arus."
-        )
-    else:
-        st.success(f"✅ Tagihan wajar (selisih {payload['selisih_pct']}%).")
+    # ── Status Anomali ───────────────────────────────────────────────────────
+    # 5 kemungkinan status (2 untuk pascabayar, 5 untuk prabayar) —
+    # pesan_anomali sudah lengkap dari core/anomaly_detector.py, tidak
+    # perlu disusun ulang di sini.
+    _RENDER_ANOMALI = {
+        "anomali"             : (st.error,   "⚠️ "),
+        "normal"               : (st.success, "✅ "),
+        "data_belum_cukup"     : (st.warning, "ℹ️ "),
+        "data_tidak_konsisten" : (st.warning, "⚠️ "),
+        "tanggal_tidak_valid"  : (st.warning, "⚠️ "),
+    }
+    _render_fn, _prefix = _RENDER_ANOMALI.get(
+        payload['status_anomali'], (st.info, "")
+    )
+    _render_fn(f"{_prefix}{payload['pesan_anomali']}")
 
     # ── Metrik utama ──────────────────────────────────────────────────────────
+    label_biaya = (
+        "Estimasi Nilai Konsumsi" if payload['is_prabayar'] else "Estimasi Tagihan"
+    )
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Estimasi Tagihan",  f"Rp {payload['estimasi_rp']:,.0f}")
+    m1.metric(label_biaya,          f"Rp {payload['estimasi_rp']:,.0f}")
     m2.metric("Profil IKE",        label_ike)
     m3.metric("Total Konsumsi",    f"{payload['total_kwh']} kWh/bln")
     m4.metric("Emisi CO₂",
@@ -587,11 +769,18 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
         )
 
         o1, o2, o3 = st.columns(3)
-        o1.metric(
-            "Hemat Biaya/Bulan",
-            f"Rp {hasil_opt['hemat_rp']:,}",
-            f"{hasil_opt['persen_hemat_rp']}%"
-        )
+        if payload['is_prabayar']:
+            o1.metric(
+                "Token Dihemat/Bulan",
+                f"{hasil_opt['hemat_kwh']} kWh",
+                f"≈ Rp {hasil_opt['hemat_rp']:,}"
+            )
+        else:
+            o1.metric(
+                "Hemat Biaya/Bulan",
+                f"Rp {hasil_opt['hemat_rp']:,}",
+                f"{hasil_opt['persen_hemat_rp']}%"
+            )
         o2.metric(
             "Kurang Emisi/Bulan",
             f"{hasil_opt['hemat_emisi_kg']} kgCO₂",
@@ -607,7 +796,7 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
             st.markdown(
                 f"- 🔌 **{l['nama']}** — kurangi dari {l['jam_awal']} jam → "
                 f"**{l['jam_rekomendasi']} jam/hari** "
-                f"(hemat Rp {l['hemat_rp']:,}/bulan · "
+                f"({_format_hemat_langkah(l, payload['is_prabayar'])} · "
                 f"kurangi {l['hemat_emisi_kg']} kgCO₂/bulan)"
             )
 
@@ -635,6 +824,29 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
 | Biaya beban/RM | Rp {payload['biaya_beban']:,.0f} |
 | **Estimasi total** | **Rp {payload['estimasi_rp']:,.0f}** |
         """)
+
+    # ── Rincian token (khusus prabayar) ─────────────────────────────────────
+    if payload['is_prabayar'] and 'token_context' in payload:
+        tc = payload['token_context']
+        with st.expander("🔋 Rincian Token"):
+            st.markdown(f"""
+| Komponen | Nilai |
+|---|---|
+| Tanggal pembelian | {tc['tanggal_pembelian'].strftime('%d %B %Y')} |
+| Hari berjalan | {tc['hari_berjalan']} hari |
+| Sisa token sebelum beli | {tc['sisa_sebelum_beli']} kWh |
+| Nominal token dibeli | Rp {tc['nominal_dibeli']:,.0f} |
+| kWh dari pembelian (PBJT 2,4% terpotong) | {tc['kwh_dari_pembelian']} kWh |
+| Saldo awal periode | {tc['saldo_awal']} kWh |
+| Sisa token saat ini | {tc['sisa_saat_ini']} kWh |
+| **Token terpakai aktual** | **{tc['token_terpakai_aktual']} kWh** |
+| Estimasi terpakai dari daftar peralatan | {tc['estimasi_terpakai_perangkat']} kWh |
+            """)
+            st.caption(
+                "Kolom 'Token terpakai aktual' dihitung dari selisih saldo "
+                "(bukti fisik) — dibandingkan dengan estimasi dari daftar "
+                "peralatan untuk deteksi anomali di atas."
+            )
 
     # ── Rincian emisi ─────────────────────────────────────────────────────────
     with st.expander("🌿 Rincian Emisi CO₂"):
