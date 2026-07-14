@@ -1,13 +1,20 @@
 /**
  * lib/api.ts
  * ===========
- * Fetch wrapper ke backend FastAPI. URL backend diambil dari
- * NEXT_PUBLIC_API_URL (env var) — lihat .env.local.example.
+ * Fetch wrapper ke backend FastAPI.
+ *
+ * NEXT_PUBLIC_API_URL kosong/tidak diset -> request jadi relatif (mis.
+ * fetch('/api/referensi')) -> otomatis benar untuk deploy Vercel Services
+ * (frontend & backend satu domain yang sama).
+ *
+ * Untuk development lokal (frontend :3000, backend :8000 terpisah),
+ * .env.local WAJIB set NEXT_PUBLIC_API_URL=http://localhost:8000 secara
+ * eksplisit — lihat .env.local.example.
  */
 
 import type { AnalisisRequest, AnalisisResponse, ApiErrorBody, ReferensiResponse } from "./types";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 export class ApiError extends Error {
   status: number;
