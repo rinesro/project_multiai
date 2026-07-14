@@ -1,0 +1,86 @@
+@import "tailwindcss";
+
+/* ============================================================
+   DESIGN TOKENS — "Panel Meteran"
+   Terinspirasi tampilan LCD meteran listrik digital + struk token
+   PLN. Aksen amber merujuk lampu jalan sodium (etimologi "Pajak
+   Penerangan Jalan" / PPJ, cikal-bakal PBJT yang jadi rujukan
+   regulasi di proyek ini).
+   ============================================================ */
+@theme {
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
+
+  /* Graphite — latar & permukaan, warm-tinted (bukan hitam pekat) */
+  --color-graphite-950: #16181b;
+  --color-graphite-900: #1d2024;
+  --color-graphite-800: #262a30;
+  --color-graphite-700: #383d45;
+  --color-graphite-600: #4d535d;
+
+  /* Teks */
+  --color-cream: #f3f0e8;
+  --color-cream-dim: #a8a49a;
+
+  /* Aksen amber — glow LCD / lampu sodium */
+  --color-amber: #e8a33d;
+  --color-amber-bright: #ffc168;
+  --color-amber-dim: #8a6428;
+
+  /* Status */
+  --color-teal: #4fd1a5;
+  --color-teal-dim: #234a3b;
+  --color-red: #ef6b5e;
+  --color-red-dim: #4a2622;
+  --color-amber-warn: #e8c33d;
+  --color-amber-warn-dim: #4a3f22;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--color-graphite-950);
+  color: var(--color-cream);
+  font-family: var(--font-sans);
+}
+
+/* Tekstur latar halus — samar, bukan dekorasi ramai */
+.bg-panel-texture {
+  background-image:
+    radial-gradient(circle at 20% -10%, color-mix(in srgb, var(--color-amber) 6%, transparent), transparent 45%),
+    radial-gradient(circle at 100% 10%, color-mix(in srgb, var(--color-teal) 4%, transparent), transparent 40%);
+}
+
+/* Garis putus-putus ala perforasi struk */
+.tear-line {
+  background-image: repeating-linear-gradient(
+    to right,
+    var(--color-graphite-700) 0,
+    var(--color-graphite-700) 6px,
+    transparent 6px,
+    transparent 12px
+  );
+  height: 1px;
+}
+
+/* Fokus keyboard — selalu terlihat, tidak pernah dihilangkan */
+:focus-visible {
+  outline: 2px solid var(--color-amber);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Glow tipis untuk angka hero meteran */
+.digit-glow {
+  text-shadow: 0 0 24px color-mix(in srgb, var(--color-amber) 35%, transparent);
+}
