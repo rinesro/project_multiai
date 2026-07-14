@@ -12,6 +12,7 @@ models/, optimizer/, fuzzy/) — tidak ada logika yang ditulis ulang.
 
 import os
 import sys
+import ctypes
 import warnings
 import logging
 from contextlib import asynccontextmanager
@@ -29,6 +30,45 @@ warnings.filterwarnings("ignore")
 # folder ini sendiri, tidak menjangkau folder di luar). Makanya yang
 # ditambahkan ke sys.path adalah folder backend/ itu sendiri.
 sys.path.insert(0, str(Path(__file__).parent))
+
+
+def _preload_vendored_libgomp():
+    """
+    LightGBM (dipakai models/dsm_classifier.py) butuh libgomp.so.1 —
+    library SISTEM (bukan Python package). Di Docker (HF Spaces/Cloud
+    Run) ini beres lewat `apt-get install libgomp1` di Dockerfile. Tapi
+    Vercel Function itu serverless — kita TIDAK bisa apt-install apa
+    pun, dan environment defaultnya tidak menyediakan libgomp sama
+    sekali. Ini bug yang belum diperbaiki dari sumbernya:
+    https://github.com/microsoft/LightGBM/issues/7141 (dibuka 30 Jan 2026).
+
+    Solusi: scikit-learn (sudah ada di requirements.txt) diam-diam
+    membawa salinan libgomp.so.1 sendiri (dibutuhkan algoritmanya
+    sendiri) — tapi dengan nama file DAN SONAME internal yang di-mangle
+    (mis. "libgomp-e985bcbb.so.1.0.0"), jadi tidak otomatis dikenali
+    saat lightgbm mencari persis "libgomp.so.1".
+
+    backend/vendor/libgomp.so.1 adalah SALINAN dari file scikit-learn
+    itu, yang SONAME internalnya sudah di-patch manual (pakai
+    `patchelf --set-soname libgomp.so.1`) supaya dikenali dengan nama
+    yang benar. Fungsi ini memuatnya duluan (RTLD_GLOBAL) SEBELUM
+    lightgbm diimpor, supaya saat lightgbm mencari "libgomp.so.1",
+    linker sudah menemukannya di memori proses tanpa perlu mencari ke
+    sistem file sama sekali.
+
+    Kalau file vendor ini tidak ada, atau linux system sudah punya
+    libgomp sendiri (Docker/lokal), fungsi ini gagal diam-diam — tidak
+    masalah, artinya lightgbm akan cari libgomp dengan cara normal.
+    """
+    try:
+        vendor_path = Path(__file__).parent / "vendor" / "libgomp.so.1"
+        if vendor_path.exists():
+            ctypes.CDLL(str(vendor_path), mode=ctypes.RTLD_GLOBAL)
+    except OSError:
+        pass
+
+
+_preload_vendored_libgomp()
 
 # Muat backend/.env kalau ada (development lokal). Di Hugging Face Spaces,
 # secrets sudah otomatis jadi environment variable — load_dotenv() tidak
