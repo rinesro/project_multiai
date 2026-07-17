@@ -154,7 +154,7 @@ export function PeralatanSection({
               ))}
             </Select>
           </Field>
-          <Field label="Durasi Nyala (Jam/Hari)" hint="Otomatis dibatasi 0–24 jam — sehari cuma ada 24 jam.">
+          <Field label="Durasi Nyala (Jam/Hari)" hint="Harap Input 1-24.">
             <Input
               type="number"
               step="0.5"
