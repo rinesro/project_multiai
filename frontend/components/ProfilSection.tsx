@@ -90,7 +90,7 @@ export function ProfilSection({
             </Field>
             <Field
               label="Nominal Token Dibeli (Rp)"
-              hint="Sesuai struk bukan termasuk biaya admin bank/e-wallet"
+              hint="Isi nominal token sesuai struk pembelian dan tidak termasuk biaya admin bank/e-wallet"
             >
               <Input
                 type="number"
