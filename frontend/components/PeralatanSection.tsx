@@ -154,7 +154,7 @@ export function PeralatanSection({
               ))}
             </Select>
           </Field>
-          <Field label="Durasi Nyala (Jam/Hari)" hint="Harap Input 1-24.">
+          <Field label="Durasi Nyala (Jam/Hari)" hint="Harap hanya input 1-24.">
             <Input
               type="number"
               step="0.5"
