@@ -149,9 +149,7 @@ export function HasilAnalisis({ hasil }: { hasil: AnalisisResponse }) {
         <MetricCard label="Emisi CO₂" value={`${hasil.emisi_sebelum.emisi_kg_bulan} kg/bln`} />
       </div>
       <p className="text-xs leading-relaxed text-cream-dim/70">
-        ⚠️ Hasil perhitungan di bawah bersifat <strong>prediktif</strong> dihitung dari
-        spesifikasi & durasi pakai yang Anda masukkan, bukan dari pembacaan
-        meteran langsung. Hasil aktual bisa berbeda.
+        ⚠️ Data token/tagihan yang dihasilkan <strong>bisa tidak sesuai dengan hasil hitung pln</strong>. Hasil aktual bisa berbeda.
       </p>
 
       {opt.aktif && (
