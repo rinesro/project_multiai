@@ -63,10 +63,6 @@ export function ProfilSection({
 
       {isPrabayar ? (
         <div>
-          <p className="mb-4 text-sm text-cream-dim">
-            Data token dipakai untuk deteksi anomali — membandingkan konsumsi
-            aktual (selisih saldo token) dengan estimasi dari daftar peralatan.
-          </p>
           <div className="grid gap-5 sm:grid-cols-2">
             <Field label="Tanggal Pembelian Token Terakhir">
               <Input
