@@ -12,6 +12,17 @@ function hitungKwhBulan(watt: number, jam: number, jumlah: number) {
   return Math.round(((watt * jam * jumlah * 30) / 1000) * 10000) / 10000;
 }
 
+/** Batasi durasi nyala ke rentang wajar [0, 24] — sehari cuma 24 jam.
+ * Angka di bawah 0 dibulatkan ke 0, di atas 24 dibulatkan ke 24, supaya
+ * user tidak perlu menebak kenapa input "ditolak" — nilainya cuma
+ * disesuaikan ke batas terdekat secara langsung. */
+function clampJam(v: number): number {
+  if (Number.isNaN(v)) return 0;
+  if (v < 0) return 0;
+  if (v > 24) return 24;
+  return v;
+}
+
 const KOSONG: PeralatanInput = {
   nama: "",
   kategori: "Lainnya",
@@ -41,20 +52,21 @@ export function PeralatanSection({
       setError("Tegangan dan arus harus lebih dari 0.");
       return;
     }
-    // Sehari cuma ada 24 jam — ditegakkan beneran di sini, bukan cuma
-    // atribut HTML max (yang tidak mencegah user mengetik angka lebih
-    // besar). Backend (schemas.py) juga menegakkan batas yang sama
-    // sebagai jaring pengaman kedua.
-    if (form.jam <= 0 || form.jam > 24) {
-      setError("Durasi nyala harus antara 0 dan 24 jam per hari.");
+    // clampJam() di input sudah mencegah nilai di luar [0, 24] — jadi
+    // satu-satunya kondisi tersisa yang perlu ditolak di sini adalah
+    // tepat 0 (alat yang "tidak pernah dipakai" tidak masuk akal untuk
+    // dianalisis). Pesan spesifik supaya user tahu persis kenapa ditolak.
+    if (form.jam <= 0) {
+      setError("harap cantumkan perangkat yang digunakan (daya nyala>0)");
       return;
     }
     setError(null);
     onChange([...daftarAlat, form]);
     setForm(KOSONG);
-    // Modal SENGAJA tetap terbuka setelah berhasil tambah — supaya user
-    // bisa langsung tambah alat berikutnya tanpa buka-tutup modal
-    // berulang kali kalau punya banyak peralatan.
+    // Tutup modal otomatis — ini konfirmasi visual paling jelas bahwa
+    // penambahan berhasil. Kalau mau tambah alat lagi, tombol "+ Tambah
+    // Alat" masih gampang dijangkau, tidak perlu modal tetap terbuka.
+    setModalOpen(false);
   }
 
   function hapus(idx: number) {
@@ -142,14 +154,14 @@ export function PeralatanSection({
               ))}
             </Select>
           </Field>
-          <Field label="Durasi Nyala (Jam/Hari)" hint="Maksimal 24 jam — sehari cuma ada 24 jam.">
+          <Field label="Durasi Nyala (Jam/Hari)" hint="Otomatis dibatasi 0–24 jam — sehari cuma ada 24 jam.">
             <Input
               type="number"
               step="0.5"
-              min={0.1}
+              min={0}
               max={24}
               value={form.jam}
-              onChange={(e) => setForm({ ...form, jam: Number(e.target.value) })}
+              onChange={(e) => setForm({ ...form, jam: clampJam(Number(e.target.value)) })}
             />
           </Field>
           <Field label="Tegangan (V)">

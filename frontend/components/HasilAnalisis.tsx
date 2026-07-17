@@ -111,7 +111,11 @@ export function HasilAnalisis({ hasil }: { hasil: AnalisisResponse }) {
         <p className="mb-3 text-sm font-semibold text-amber-bright">💡 Rekomendasi EnergiCerdas AI</p>
         <p className="whitespace-pre-line text-sm leading-relaxed text-cream-dim">{hasil.narasi}</p>
 
-        <DividerLabel>Rincian Rekomendasi</DividerLabel>
+        <DividerLabel>
+          {hasil.label_ike.includes("Boros")
+            ? "Untuk Melakukan Penghematan Bisa Lakukan Hal Ini"
+            : "Untuk Lebih Hemat Bisa Lakukan hal ini"}
+        </DividerLabel>
 
         <RekomendasiPerangkat
           hasilDsm={hasil.hasil_dsm}
@@ -145,7 +149,7 @@ export function HasilAnalisis({ hasil }: { hasil: AnalisisResponse }) {
         <MetricCard label="Emisi CO₂" value={`${hasil.emisi_sebelum.emisi_kg_bulan} kg/bln`} />
       </div>
       <p className="text-xs leading-relaxed text-cream-dim/70">
-        ⚠️ Semua angka di atas bersifat <strong>prediktif</strong> — dihitung dari
+        ⚠️ Hasil perhitungan di bawah bersifat <strong>prediktif</strong> dihitung dari
         spesifikasi & durasi pakai yang Anda masukkan, bukan dari pembacaan
         meteran langsung. Hasil aktual bisa berbeda.
       </p>
@@ -200,18 +204,6 @@ export function HasilAnalisis({ hasil }: { hasil: AnalisisResponse }) {
             </>
           )}
         </div>
-      </Expandable>
-
-      <Expandable title="🔧 Klasifikasi Peralatan (detail teknis, opsional)">
-        <ul className="space-y-1.5 text-sm">
-          {hasil.hasil_dsm.map((a, i) => (
-            <li key={i} className="flex items-center gap-2">
-              <span className={a.label_dsm === "Fleksibel" ? "text-teal" : "text-red"}>●</span>
-              <span className="text-cream">{a.nama}</span>
-              <span className="text-cream-dim">— {a.label_dsm}</span>
-            </li>
-          ))}
-        </ul>
       </Expandable>
         </>
       )}
