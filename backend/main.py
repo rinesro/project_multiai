@@ -7,7 +7,7 @@ FastAPI backend untuk EnergiCerdas AI — dipakai frontend Next.js
 Orkestrasi Lapis 1 (kalkulasi & anomali) → Lapis 2 (fuzzy IKE + DSM
 classifier) → Lapis 3 (brute force optimizer) → narasi Gemini,
 memakai modul yang SAMA dengan app.py Streamlit (core/, services/,
-models/, optimizer/, fuzzy/) — tidak ada logika yang ditulis ulang.
+models/, optimizer/, action_analist/) — tidak ada logika yang ditulis ulang.
 """
 
 import os
@@ -24,7 +24,7 @@ from dotenv import load_dotenv
 
 warnings.filterwarnings("ignore")
 
-# core/, services/, models/, optimizer/, fuzzy/, data/ sekarang ada DI
+# core/, action_analist/, services/, models/, optimizer/, data/ sekarang ada DI
 # DALAM backend/ (bukan sepupu di repo root) — supaya Vercel Services
 # bisa bundling semuanya sekaligus (root: "backend/" cuma melihat isi
 # folder ini sendiri, tidak menjangkau folder di luar). Makanya yang
@@ -76,7 +76,7 @@ _preload_vendored_libgomp()
 load_dotenv(Path(__file__).parent / ".env")
 
 from core.kalkulasi import GOLONGAN_DAYA, KATEGORI_ALAT, PBJT_RUMAH_TANGGA, get_tarif
-from fuzzy.ike_profiler import profil_ike
+from action_analist.ike_profiler import profil_ike
 from models.dsm_classifier import DSMClassifier
 from optimizer.brute_force import optimasi
 from services.ingestion import DataIngestionValidatorAgent
@@ -221,7 +221,7 @@ def post_analisis(req: AnalisisRequest):
         ada_ac=ada_ac,
         tarif_kwh=agent.TARIF_KWH,
         pbjt=agent.PBJT,
-        biaya_beban=agent.BIAYA_BEBAN,
+        is_prabayar=req.is_prabayar,
         kwh_awal=payload['total_kwh'],
         tagihan_awal=payload['estimasi_rp'],
         emisi_awal=payload['emisi_sebelum']['emisi_kg_bulan'],

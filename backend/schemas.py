@@ -81,7 +81,7 @@ class AnalisisResponse(BaseModel):
     total_kwh: float
     biaya_pemakaian: float
     biaya_pbjt: float
-    biaya_beban: float
+    biaya_materai: float
     estimasi_rp: float
     ike: float
     label_ike: str
@@ -96,7 +96,7 @@ class AnalisisResponse(BaseModel):
     tagihan_asli: Optional[float] = None
     token_context: Optional[dict] = None
 
-    # Lapis 1 — status anomali (skema seragam, lihat core/anomaly_detector.py)
+    # Lapis 1 — status prediksi anomali (skema seragam, lihat core/anomaly_predictor.py)
     status_anomali: str
     selisih_pct: Optional[float] = None
     pesan_anomali: str

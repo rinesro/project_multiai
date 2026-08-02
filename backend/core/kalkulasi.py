@@ -27,15 +27,32 @@ CATATAN PEMISAHAN — deteksi anomali:
     tidak valid) terkumpul di satu tempat yang jelas tanggung jawabnya.
 
 Referensi regulasi:
-    [1] Tarif PLN April–Juni 2026 — PT PLN (Persero)
+    [1] Tarif PLN — PT PLN (Persero), stabil sejak 1 Januari 2022 hingga
+        Triwulan III 2026 (Juli–September 2026)
     [2] Faktor Emisi GRK Grid Jamali OM 0,80 kgCO₂/kWh — ESDM 2019
-    [3] PBJT 2,4% — Perda DKI Jakarta No.1/2024
-    [4] Rumus Rekening Minimum — PT PLN (Persero)
+    [3] PBJT 2,4% — Perda DKI Jakarta No.1/2024 (khusus rumah tangga
+        DKI Jakarta — tarif PBJT-TL nasional berkisar 3%-10% tergantung
+        daerah, contoh: ULP Pekanbaru berbeda dari DKI Jakarta)
+    [4] Rumus dasar tagihan pascabayar & Bea Materai — infografis resmi
+        PLN "Memahami Perhitungan Tagihan Listrik PLN Pascabayar"
+        (berlaku sejak 1 Januari 2022); UU No.10/2020 tentang Bea
+        Meterai (Rp10.000, ambang >Rp5.000.000)
     [5] Dasar pengenaan PBJT tenaga listrik prabayar dihitung dari
         nominal pembelian token (bukan hasil hitung-mundur dari kWh) —
         Badan Pendapatan Daerah Provinsi DKI Jakarta (2025),
         https://dpp.jakarta.go.id/berita/sobat-pajak-ini-dia-segala-
         hal-tentang-pbjt-tenaga-listrik
+
+CATATAN PERUBAHAN RUMUS TAGIHAN (perombakan besar):
+    Komponen "Biaya Beban"/Rekening Minimum (RM1 = 40 jam × daya ×
+    tarif) yang SEBELUMNYA ada di modul ini SUDAH DIHAPUS TOTAL.
+    Setelah verifikasi ulang terhadap infografis resmi PLN [4], rumus
+    dasar tagihan pascabayar PLN Persero (yang berlaku untuk DKI
+    Jakarta) TIDAK menyebutkan komponen Rekening Minimum sama sekali —
+    rumus lama ternyata bersumber dari skema PLN Batam (badan usaha
+    terpisah dari PLN Persero, tarif/skema sendiri), bukan skema
+    nasional. Sebagai gantinya, ditambahkan Biaya Materai sesuai rumus
+    resmi PLN [4] dan UU Bea Meterai.
 """
 
 from datetime import date
@@ -72,7 +89,7 @@ KATEGORI_ALAT = [
 ]
 
 
-# ── Fungsi dasar tarif & biaya beban ──────────────────────────────────────────
+# ── Fungsi dasar tarif ─────────────────────────────────────────────────────────
 
 def get_tarif(daya_va: int) -> float:
     """Tarif Rp/kWh berdasarkan daya tersambung (VA). [1]"""
@@ -80,17 +97,6 @@ def get_tarif(daya_va: int) -> float:
         if lo <= daya_va <= hi:
             return tarif
     return 1699.53
-
-
-def hitung_biaya_beban(daya_va: int, is_prabayar: bool = False) -> float:
-    """
-    Rekening Minimum pascabayar.
-    Rumus resmi PLN: RM1 = 40 jam × daya (kVA) × tarif (Rp/kWh) [4]
-    Prabayar (token) tidak dikenakan biaya beban.
-    """
-    if is_prabayar:
-        return 0.0
-    return 40 * (daya_va / 1000.0) * get_tarif(daya_va)
 
 
 # ── Fungsi kalkulasi daya & energi per peralatan ──────────────────────────────
@@ -115,24 +121,45 @@ def hitung_kwh_alat(watt: float, jam: float, jumlah: int = 1) -> float:
 
 # ── Fungsi kalkulasi tagihan & emisi (dipakai Lapis 1 DAN Lapis 3) ────────────
 
+def hitung_biaya_materai(subtotal: float, is_prabayar: bool = False) -> float:
+    """
+    Bea Meterai pada tagihan listrik pascabayar. [4]
+
+    Rp10.000 flat (UU No.10/2020 tentang Bea Meterai — nominal dan
+    ambang berlaku nasional, bukan spesifik listrik), dikenakan HANYA
+    kalau (biaya pemakaian + PBJT) > Rp5.000.000.
+
+    HANYA berlaku untuk pascabayar — materai adalah bea atas dokumen
+    tagihan resmi. estimasi_rp untuk prabayar bukan dokumen tagihan,
+    cuma nilai informasional (setara Rupiah dari pemakaian), jadi tidak
+    relevan dikenai bea materai.
+    """
+    if is_prabayar:
+        return 0.0
+    return 10000.0 if subtotal > 5_000_000 else 0.0
+
+
 def hitung_tagihan(kwh: float, tarif: float, pbjt: float,
-                   biaya_beban: float) -> dict:
+                   is_prabayar: bool = False) -> dict:
     """
     Menghitung rincian tagihan listrik dari total kWh.
 
-    Struktur tagihan PLN:
-        Tagihan = Biaya Pemakaian + PBJT + Biaya Beban (jika pascabayar)
+    Struktur tagihan PLN pascabayar, sesuai infografis resmi PLN
+    "Memahami Perhitungan Tagihan Listrik PLN Pascabayar" [4]:
+        Tagihan = Biaya Pemakaian + PBJT-TL + Biaya Materai
 
     Returns dict:
-        biaya_pemakaian, biaya_pbjt, biaya_beban, total
+        biaya_pemakaian, biaya_pbjt, biaya_materai, total
     """
     biaya_pemakaian = kwh * tarif
     biaya_pbjt      = biaya_pemakaian * pbjt
-    total           = biaya_pemakaian + biaya_pbjt + biaya_beban
+    subtotal        = biaya_pemakaian + biaya_pbjt
+    biaya_materai   = hitung_biaya_materai(subtotal, is_prabayar)
+    total           = subtotal + biaya_materai
     return {
         "biaya_pemakaian": round(biaya_pemakaian, 0),
         "biaya_pbjt"     : round(biaya_pbjt, 0),
-        "biaya_beban"    : round(biaya_beban, 0),
+        "biaya_materai"  : round(biaya_materai, 0),
         "total"          : round(total, 0),
     }
 

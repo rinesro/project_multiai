@@ -84,7 +84,7 @@ export function PeralatanSection({
         <SectionLabel
           nomor="04"
           title="Inventarisasi Peralatan Listrik"
-          desc="Daya dihitung otomatis dari tegangan × arus."
+          desc="Daya dihitung otomatis."
         />
         <Button type="button" onClick={() => setModalOpen(true)} className="shrink-0">
           + Tambah Alat

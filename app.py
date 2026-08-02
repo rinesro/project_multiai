@@ -8,7 +8,7 @@ from datetime import date
 
 warnings.filterwarnings("ignore")
 
-# core/, services/, models/, optimizer/, fuzzy/, data/ sekarang ada DI
+# core/, action_analist/, services/, models/, optimizer/, data/ sekarang ada DI
 # DALAM backend/ (dipindah supaya Vercel Services bisa bundling backend
 # sebagai satu unit mandiri — lihat backend/main.py untuk detail
 # alasannya). app.py (Streamlit) tetap butuh modul yang sama, jadi
@@ -60,14 +60,14 @@ _sys.path.insert(0, str(_Path(__file__).parent / "backend"))
 # berbasis data milik pengguna sendiri (brute force di Lapis 3), sehingga
 # komponen KNN dihapus dari arsitektur final.
 from core.kalkulasi import (
-    get_tarif, hitung_biaya_beban, hitung_watt, hitung_kwh_alat,
+    get_tarif, hitung_biaya_materai, hitung_watt, hitung_kwh_alat,
     hitung_tagihan, hitung_emisi, hitung_ike, hitung_kwh_per_org,
     hitung_kwh_dari_token, hitung_hari_berjalan,
     hitung_estimasi_kwh_periode, hitung_saldo_token_awal,
     hitung_token_terpakai_aktual,
     GOLONGAN_DAYA, PBJT_RUMAH_TANGGA, KATEGORI_ALAT,
 )
-from fuzzy.ike_profiler      import profil_ike
+from action_analist.ike_profiler import profil_ike
 from models.dsm_classifier   import DSMClassifier
 from optimizer.brute_force   import optimasi
 
@@ -187,13 +187,11 @@ with c5:
     is_prabayar = (jenis_meteran == "Prabayar (Token)")
 
 tarif_aktif = get_tarif(daya_va)
-bb_aktif    = hitung_biaya_beban(daya_va, is_prabayar)
 st.info(
     f"Golongan {daya_va} VA · "
     f"Tarif Rp {tarif_aktif:,.2f}/kWh · "
-    f"PBJT 2,4% (Perda DKI No.1/2024) · "
-    f"Biaya beban: "
-    f"{'Rp 0 (prabayar)' if is_prabayar else f'Rp {bb_aktif:,.0f}/bulan'}"
+    f"PBJT 2,4% (Perda DKI No.1/2024)"
+    + ("" if is_prabayar else " · Bea Materai Rp10.000 kalau tagihan >Rp5 juta")
 )
 
 # ============================================================
@@ -429,7 +427,7 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
             ada_ac        = ada_ac,
             tarif_kwh     = agent.TARIF_KWH,
             pbjt          = agent.PBJT,
-            biaya_beban   = agent.BIAYA_BEBAN,
+            is_prabayar   = is_prabayar,
             kwh_awal      = payload['total_kwh'],
             tagihan_awal  = payload['estimasi_rp'],
             emisi_awal    = payload['emisi_sebelum']['emisi_kg_bulan'],
@@ -459,7 +457,7 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
 
     # ── Status Anomali ───────────────────────────────────────────────────────
     # 5 kemungkinan status (2 untuk pascabayar, 5 untuk prabayar) —
-    # pesan_anomali sudah lengkap dari core/anomaly_detector.py, tidak
+    # pesan_anomali sudah lengkap dari action_analist/anomaly_evaluator.py, tidak
     # perlu disusun ulang di sini.
     _RENDER_ANOMALI = {
         "anomali"             : (st.error,   "⚠️ "),
@@ -598,7 +596,7 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
 | Total pemakaian | {payload['total_kwh']} kWh |
 | Biaya pemakaian | Rp {payload['biaya_pemakaian']:,.0f} |
 | PBJT 2,4% (Perda DKI No.1/2024) | Rp {payload['biaya_pbjt']:,.0f} |
-| Biaya beban/RM | Rp {payload['biaya_beban']:,.0f} |
+| Biaya Materai | Rp {payload['biaya_materai']:,.0f} |
 | **Estimasi total** | **Rp {payload['estimasi_rp']:,.0f}** |
         """)
 

@@ -136,7 +136,7 @@ export interface AnalisisResponse {
   total_kwh: number;
   biaya_pemakaian: number;
   biaya_pbjt: number;
-  biaya_beban: number;
+  biaya_materai: number;
   estimasi_rp: number;
   ike: number;
   label_ike: string;

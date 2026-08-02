@@ -19,7 +19,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy source code — core/, services/, models/, optimizer/, fuzzy/, data/
+# Copy source code — core/ (rumus kalkulasi murni), fuzzy/ (ike_profiler.py
+# & anomaly_evaluator.py, satu folder untuk modul evaluasi/klasifikasi),
+# services/, models/, optimizer/, data/
 # sekarang semua nested di dalam backend/ (bukan folder sepupu terpisah),
 # supaya struktur yang sama juga bisa di-deploy sebagai Vercel Service
 # (yang cuma bundling isi satu folder root, tidak menjangkau folder di

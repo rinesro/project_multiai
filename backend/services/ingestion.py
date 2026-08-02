@@ -10,7 +10,7 @@ yang ditulis ulang di dua tempat berbeda dengan risiko tidak sinkron.
 Kelas ini murni Python (tidak ada dependensi Streamlit), jadi aman
 dipakai di kedua konteks.
 
-Deteksi anomali: dilempar ke core/anomaly_detector.py — kelas ini
+Prediksi anomali: dilempar ke action_analist/anomaly_evaluator.py — kelas ini
 hanya orkestrasi kalkulasi.
 
 Semua kalkulasi yang BISA dihitung dari data yang tersedia di sini
@@ -21,13 +21,13 @@ dan Layer 3 (brute force) menerima hasilnya lewat 'payload' dan
 """
 
 from core.kalkulasi import (
-    get_tarif, hitung_biaya_beban, hitung_watt, hitung_kwh_alat,
+    get_tarif, hitung_watt, hitung_kwh_alat,
     hitung_tagihan, hitung_emisi, hitung_ike, hitung_kwh_per_org,
     hitung_kwh_dari_token, hitung_hari_berjalan,
     hitung_estimasi_kwh_periode, hitung_saldo_token_awal,
     hitung_token_terpakai_aktual, PBJT_RUMAH_TANGGA,
 )
-from core.anomaly_detector import (
+from action_analist.anomaly_evaluator import (
     evaluasi_anomali_pascabayar, evaluasi_anomali_prabayar,
 )
 
@@ -38,7 +38,10 @@ class DataIngestionValidatorAgent:
         self.is_prabayar = is_prabayar
         self.TARIF_KWH   = get_tarif(daya_va)
         self.PBJT        = PBJT_RUMAH_TANGGA  # alias, dipakai pipeline & optimasi()
-        self.BIAYA_BEBAN = hitung_biaya_beban(daya_va, is_prabayar)
+        # CATATAN PEROMBAKAN: self.BIAYA_BEBAN (Rekening Minimum) sudah
+        # dihapus total — rumus resmi PLN Persero untuk tagihan pascabayar
+        # tidak menyertakan komponen ini (lihat core/kalkulasi.py). Rumus
+        # lama ternyata bersumber dari skema PLN Batam, bukan nasional.
 
     def proses_data(self, luas_rumah, penghuni, daftar_alat,
                     tagihan_asli: float = None,
@@ -78,8 +81,11 @@ class DataIngestionValidatorAgent:
 
         total_kwh = round(total_kwh, 3)
 
+        # Tagihan = Biaya Pemakaian + PBJT + Biaya Materai (kalau relevan).
+        # is_prabayar dikirim ke hitung_tagihan() supaya materai TIDAK
+        # dikenakan untuk prabayar (estimasi_rp bukan dokumen tagihan resmi).
         rincian_tagihan  = hitung_tagihan(
-            total_kwh, self.TARIF_KWH, PBJT_RUMAH_TANGGA, self.BIAYA_BEBAN
+            total_kwh, self.TARIF_KWH, PBJT_RUMAH_TANGGA, self.is_prabayar
         )
         ike           = hitung_ike(total_kwh, luas_rumah)
         kwh_per_org   = hitung_kwh_per_org(total_kwh, penghuni)
@@ -89,7 +95,7 @@ class DataIngestionValidatorAgent:
             "total_kwh"      : total_kwh,
             "biaya_pemakaian": rincian_tagihan['biaya_pemakaian'],
             "biaya_pbjt"     : rincian_tagihan['biaya_pbjt'],
-            "biaya_beban"    : rincian_tagihan['biaya_beban'],
+            "biaya_materai"  : rincian_tagihan['biaya_materai'],
             "estimasi_rp"    : rincian_tagihan['total'],
             "ike"            : ike,
             "kwh_per_org"    : kwh_per_org,
@@ -100,11 +106,11 @@ class DataIngestionValidatorAgent:
             "is_prabayar"    : self.is_prabayar,
         }
 
-        # ── Cabang anomali: prabayar (token/kWh) vs pascabayar (Rp) ──────────
+        # ── Cabang prediksi anomali: prabayar (token/kWh) vs pascabayar (Rp) ──
         # Basisnya beda total: pascabayar bandingkan Rp vs Rp memakai siklus
         # tagihan tetap 30 hari; prabayar bandingkan kWh vs kWh dari selisih
         # saldo token, di-skala ke jumlah hari aktual sejak top-up (siklus
-        # top-up tidak selalu 30 hari). Lihat core/anomaly_detector.py.
+        # top-up tidak selalu 30 hari). Lihat action_analist/anomaly_evaluator.py.
         if self.is_prabayar:
             if token_context is None:
                 raise ValueError(

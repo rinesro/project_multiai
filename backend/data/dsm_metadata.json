@@ -1,0 +1,36 @@
+{
+  "urutan_fitur": [
+    "Kategori",
+    "Tegangan_V",
+    "Arus_A",
+    "Daya_W",
+    "Jam_Per_Hari"
+  ],
+  "kategori_alat": [
+    "Pendingin",
+    "Pemanas",
+    "Laundry",
+    "Pompa/Motor",
+    "Memasak",
+    "Hiburan/Elektronik",
+    "Pencahayaan",
+    "Lainnya"
+  ],
+  "label_dsm": [
+    "Fleksibel",
+    "Tidak Fleksibel"
+  ],
+  "metrik_test": {
+    "akurasi": 0.9792592592592593,
+    "f1_makro": 0.9785881671867627,
+    "akurasi_fallback_produksi": 0.6166666666666667
+  },
+  "lingkungan_pelatihan": {
+    "python": "3.12.13",
+    "lightgbm": "4.6.0",
+    "scikit_learn": "1.6.1",
+    "joblib": "1.5.3"
+  },
+  "seed": 42,
+  "catatan": "Label diturunkan per-alat, sengaja berbeda dari FALLBACK_MAP_PRODUKSI pada kategori Pompa/Motor, Hiburan/Elektronik, dan Pencahayaan -- lihat Sel 3."
+}

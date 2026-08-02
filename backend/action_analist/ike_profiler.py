@@ -1,6 +1,12 @@
 """
-fuzzy/ike_profiler.py
-=====================
+action_analist/ike_profiler.py
+======================
+(Riwayat lokasi: awalnya fuzzy/ike_profiler.py, sempat dipindah ke
+core/ike_profiler.py, dikembalikan ke folder terpisah (di-rename jadi
+action_analist/) — digabung satu folder
+dengan anomaly_evaluator.py karena keduanya modul "evaluasi/klasifikasi
+hasil" (bukan rumus regulasi murni seperti core/kalkulasi.py).)
+
 Modul Fuzzy Mamdani untuk klasifikasi Intensitas Konsumsi Energi (IKE)
 rumah tangga Jakarta.
 

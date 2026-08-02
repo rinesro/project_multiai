@@ -132,9 +132,9 @@ def _total_kwh(alat_tetap: list, alat_fleksibel: list) -> float:
 
 
 def _hitung_tagihan(kwh: float, tarif: float,
-                    pbjt: float, biaya_beban: float) -> float:
+                    pbjt: float, is_prabayar: bool) -> float:
     """Wrapper tipis ke core.kalkulasi.hitung_tagihan — rumus sama, tidak ditulis ulang."""
-    return _core_hitung_tagihan(kwh, tarif, pbjt, biaya_beban)["total"]
+    return _core_hitung_tagihan(kwh, tarif, pbjt, is_prabayar)["total"]
 
 
 def _hitung_emisi(kwh: float) -> float:
@@ -192,7 +192,7 @@ def optimasi(ringkasan_dsm : dict,
              ada_ac        : bool,
              tarif_kwh     : float,
              pbjt          : float,
-             biaya_beban   : float,
+             is_prabayar   : bool,
              kwh_awal      : float,
              tagihan_awal  : float,
              emisi_awal    : float) -> dict:
@@ -205,7 +205,10 @@ def optimasi(ringkasan_dsm : dict,
         ada_ac         : True jika ada peralatan kategori Pendingin
         tarif_kwh      : tarif PLN sesuai golongan (Rp/kWh)
         pbjt           : tarif PBJT (0.024 untuk rumah tangga Jakarta)
-        biaya_beban    : biaya beban/RM bulanan (Rp), 0 jika prabayar
+        is_prabayar    : True jika prabayar — menentukan apakah Biaya
+                         Materai dikenakan saat simulasi tagihan_akhir
+                         (materai hanya berlaku pascabayar; lihat
+                         core/kalkulasi.py::hitung_biaya_materai)
         kwh_awal       : total kWh sebelum optimasi
         tagihan_awal   : tagihan sebelum optimasi (Rp)
         emisi_awal     : emisi CO₂ sebelum optimasi (kgCO₂/bulan)
@@ -325,7 +328,7 @@ def optimasi(ringkasan_dsm : dict,
     kwh_akhir     = _total_kwh(alat_tetap, state)
     ike_akhir     = round(kwh_akhir / max(1.0, luas_m2), 4)
     zona_akhir    = _label_zona(ike_akhir, ada_ac)
-    tagihan_akhir = _hitung_tagihan(kwh_akhir, tarif_kwh, pbjt, biaya_beban)
+    tagihan_akhir = _hitung_tagihan(kwh_akhir, tarif_kwh, pbjt, is_prabayar)
     emisi_akhir   = _hitung_emisi(kwh_akhir)
 
     hemat_kwh   = round(kwh_awal     - kwh_akhir,     3)

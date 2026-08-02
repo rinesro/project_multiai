@@ -149,7 +149,7 @@ export function HasilAnalisis({ hasil }: { hasil: AnalisisResponse }) {
         <MetricCard label="Emisi CO₂" value={`${hasil.emisi_sebelum.emisi_kg_bulan} kg/bln`} />
       </div>
       <p className="text-xs leading-relaxed text-cream-dim/70">
-        ⚠️ Hasil perhitungan di bawah bersifat <strong>prediktif</strong> dihitung dari
+        ⚠️ Semua angka di atas bersifat <strong>prediktif</strong> — dihitung dari
         spesifikasi & durasi pakai yang Anda masukkan, bukan dari pembacaan
         meteran langsung. Hasil aktual bisa berbeda.
       </p>
@@ -178,7 +178,7 @@ export function HasilAnalisis({ hasil }: { hasil: AnalisisResponse }) {
           <StrukRow label="Tarif" value={`${formatRupiah(hasil.tarif_digunakan)}/kWh`} />
           <StrukRow label="Biaya pemakaian" value={formatRupiah(hasil.biaya_pemakaian)} />
           <StrukRow label="PBJT (2,4%)" value={formatRupiah(hasil.biaya_pbjt)} />
-          <StrukRow label="Biaya beban/RM" value={formatRupiah(hasil.biaya_beban)} />
+          <StrukRow label="Biaya Materai" value={formatRupiah(hasil.biaya_materai)} />
           <div className="my-2 tear-line" aria-hidden />
           <StrukRow label="Estimasi total" value={formatRupiah(hasil.estimasi_rp)} bold />
 

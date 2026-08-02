@@ -1,18 +1,57 @@
 """
-core/anomaly_detector.py
-=========================
+action_analist/anomaly_evaluator.py
+=================================
+(Riwayat lokasi: core/anomaly_detector.py -> core/anomaly_predictor.py
+-> sempat core/anomaly_evaluator.py -> lokasi final di sini, satu
+folder dengan ike_profiler.py. Keduanya modul "evaluasi/klasifikasi
+hasil", dipisah dari core/kalkulasi.py yang murni rumus regulasi.)
+
 Interpretasi hasil perbandingan konsumsi aktual vs estimasi menjadi
 status yang bisa ditampilkan ke user.
 
+(Riwayat nama: anomaly_detector.py/deteksi_anomali -> anomaly_predictor.py/
+prediksi_anomali -> anomaly_evaluator.py/evaluasi_anomali, nama final ini.
+"Deteksi" dilepas karena sistem ini tidak memastikan anomali secara
+definitif. "Prediksi" JUGA dilepas: istilah itu secara akademis
+menyiratkan model statistik/ML yang dilatih dan divalidasi (butuh
+akurasi, presisi, cross-validation) — padahal mekanisme di modul ini
+murni ATURAN AMBANG BATAS (bandingkan selisih % terhadap satu angka
+tetap dari rujukan eksternal), bukan model yang di-fit ke data.
+"Evaluasi" tepat karena itu persis yang terjadi: MENILAI sebuah nilai
+terhadap kriteria ambang batas, tanpa mengklaim kepastian (bukan
+"deteksi") maupun validitas prediktif statistik (bukan "prediksi").)
+
 Sengaja dipisah dari core/kalkulasi.py: kalkulasi.py murni berisi rumus
 aritmatika/regulasi tanpa aturan bisnis, sedangkan modul ini fokus
-menjawab "apa yang dianggap anomali, data belum cukup, atau data tidak
-konsisten" — untuk KEDUA domain (Rp pascabayar, kWh/token prabayar).
+menjawab "apa yang dinilai sebagai anomali, data belum cukup, atau
+data tidak konsisten" — untuk KEDUA domain (Rp pascabayar, kWh/token
+prabayar).
 
-Kenapa satu fungsi generik bisa dipakai dua domain:
-    Persentase selisih (selisih_pct) tidak bergantung satuan — Rp dan
-    kWh sama-sama besaran linear, jadi ambang toleransi 15% yang sama
-    berlaku valid untuk keduanya tanpa perlu dua rumus terpisah.
+Dasar ambang batas 29% (BATAS_TOLERANSI_ANOMALI):
+    Parry, D. A., Davidson, B. I., Sewall, C. J. R., Fisher, J. T.,
+    Mieczkowski, H., & Quintana, D. S. (2021). A systematic review and
+    meta-analysis of discrepancies between logged and self-reported
+    digital media use. Nature Human Behaviour.
+    https://doi.org/10.1038/s41562-021-01117-5
+
+    Table 2 (Reporting accuracy in subgroup analyses), kategori
+    "Usage duration": R = 1,29 (rasio rata-rata self-report/logged),
+    95% CI [1,01–1,66], P = 0,044, k = 35 studi. Kategori "duration"
+    dipilih karena paling sesuai dengan input sistem ini (estimasi jam
+    pemakaian per hari, bukan volume/jumlah interaksi), dan hasilnya
+    signifikan secara statistik — berbeda dari R keseluruhan (semua
+    kategori) yang CI-nya mencakup 1,0 (tidak signifikan).
+
+    CATATAN METODOLOGIS PENTING: penelitian ini tentang penggunaan
+    media digital (screen time, media sosial, telepon), BUKAN tentang
+    estimasi pemakaian listrik. R=1,29 diadopsi sebagai ANALOGI lintas
+    domain — pola umum "self-report cenderung meleset dari data
+    logged/aktual" — karena belum ditemukan penelitian spesifik
+    tentang akurasi estimasi pemakaian listrik rumah tangga. Baik
+    prabayar (estimasi jam pakai vs selisih saldo token) maupun
+    pascabayar (estimasi tagihan vs tagihan asli) sama-sama
+    membandingkan estimasi self-report dengan data logged/aktual,
+    sehingga dasar empiris yang sama berlaku untuk keduanya.
 
 Prabayar butuh penanganan kasus khusus yang tidak dimiliki pascabayar
 (karena pascabayar punya siklus tagihan tetap 30 hari, prabayar tidak):
@@ -22,14 +61,18 @@ Prabayar butuh penanganan kasus khusus yang tidak dimiliki pascabayar
                                          ada top-up susulan yang tak tercatat)
 """
 
-BATAS_TOLERANSI_ANOMALI = 0.15  # 15% — ambang rekayasa sistem, bukan dari regulasi
+# 29% — Parry et al. (2021), Table 2, kategori "Usage duration": R=1,29,
+# 95% CI [1,01-1,66], P=0,044. Lihat docstring modul untuk penjelasan
+# lengkap kenapa angka ini dipakai dan catatan analogi lintas domainnya.
+BATAS_TOLERANSI_ANOMALI = 0.29
 
 
 # ── Fungsi inti (generik, dua domain) ─────────────────────────────────────────
 
-def deteksi_anomali(nilai_aktual: float, nilai_estimasi: float) -> dict:
+def evaluasi_anomali(nilai_aktual: float, nilai_estimasi: float) -> dict:
     """
-    Deteksi anomali berbasis aturan (if-else) generik.
+    Evaluasi anomali berbasis aturan (if-else) generik — MENILAI selisih
+    terhadap ambang batas tetap, bukan model statistik yang di-fit/dilatih.
     Anomali = selisih estimasi vs nilai aktual > BATAS_TOLERANSI_ANOMALI.
 
     Dipakai untuk Rp (pascabayar: tagihan_asli vs estimasi_tagihan) MAUPUN
@@ -62,14 +105,14 @@ def evaluasi_anomali_pascabayar(tagihan_asli: float,
         selisih_pct  : float
         pesan        : str, siap ditampilkan ke user
     """
-    hasil  = deteksi_anomali(tagihan_asli, estimasi_tagihan)
+    hasil  = evaluasi_anomali(tagihan_asli, estimasi_tagihan)
     status = "anomali" if hasil["is_anomali"] else "normal"
 
     if status == "anomali":
         pesan = (
-            f"Anomali terdeteksi — selisih estimasi vs tagihan asli "
+            f"Anomali terindikasi — selisih estimasi vs tagihan asli "
             f"{hasil['selisih_pct']}% (ambang batas "
-            f"{int(BATAS_TOLERANSI_ANOMALI * 100)}%). Kemungkinan ada "
+            f"{round(BATAS_TOLERANSI_ANOMALI * 100)}%). Kemungkinan ada "
             "perangkat yang belum diinput atau indikasi kebocoran arus."
         )
     else:
@@ -88,7 +131,7 @@ def evaluasi_anomali_prabayar(token_terpakai_aktual: float,
     """
     Wrapper status untuk prabayar (domain kWh/token).
 
-    Menangani tiga kondisi khusus SEBELUM menjalankan deteksi anomali
+    Menangani tiga kondisi khusus SEBELUM menjalankan evaluasi anomali
     murni — masing-masing punya akar masalah berbeda dan harus
     ditampilkan dengan pesan berbeda ke user, bukan disamakan sebagai
     "anomali":
@@ -119,7 +162,7 @@ def evaluasi_anomali_prabayar(token_terpakai_aktual: float,
             "selisih_pct": None,
             "pesan"      : (
                 "Belum cukup waktu berlalu sejak pembelian token untuk "
-                "deteksi anomali yang bermakna. Cek kembali minimal "
+                "evaluasi anomali yang bermakna. Cek kembali minimal "
                 "1 hari setelah pembelian."
             ),
         }
@@ -136,16 +179,16 @@ def evaluasi_anomali_prabayar(token_terpakai_aktual: float,
             ),
         }
 
-    hasil  = deteksi_anomali(token_terpakai_aktual, estimasi_terpakai_perangkat)
+    hasil  = evaluasi_anomali(token_terpakai_aktual, estimasi_terpakai_perangkat)
     status = "anomali" if hasil["is_anomali"] else "normal"
 
     if status == "anomali":
         pesan = (
-            f"Anomali terdeteksi — konsumsi aktual "
+            f"Anomali terindikasi — konsumsi aktual "
             f"{token_terpakai_aktual} kWh vs estimasi dari perangkat "
             f"{estimasi_terpakai_perangkat} kWh dalam {hari_berjalan} hari "
             f"(selisih {hasil['selisih_pct']}%, ambang batas "
-            f"{int(BATAS_TOLERANSI_ANOMALI * 100)}%). Kemungkinan ada "
+            f"{round(BATAS_TOLERANSI_ANOMALI * 100)}%). Kemungkinan ada "
             "kebocoran arus atau perangkat yang belum diinput."
         )
     else:

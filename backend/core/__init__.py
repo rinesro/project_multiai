@@ -1,21 +1,19 @@
 """
 core/
 =====
-Modul inti berisi konstanta regulasi, rumus kalkulasi bersama, dan
-interpretasi deteksi anomali — dipakai lintas layer (Lapis 1, 2, dan 3).
+Modul inti berisi konstanta regulasi dan rumus kalkulasi murni —
+tanpa aturan bisnis/evaluasi. Klasifikasi fuzzy IKE dan evaluasi
+anomali ada di action_analist/ (satu folder terpisah, lihat action_analist/__init__.py).
 
-kalkulasi.py        : rumus aritmatika/regulasi murni, tanpa aturan bisnis.
-anomaly_detector.py : interpretasi "apa yang dianggap anomali" — dipisah
-                      supaya kalkulasi.py tetap murni dan mudah diuji
-                      tanpa perlu mock skenario bisnis.
+kalkulasi.py : rumus aritmatika/regulasi murni, dipakai lintas layer.
 """
 
 from .kalkulasi import (
     get_tarif,
-    hitung_biaya_beban,
     hitung_watt,
     hitung_kwh_alat,
     hitung_tagihan,
+    hitung_biaya_materai,
     hitung_emisi,
     hitung_ike,
     hitung_kwh_per_org,
@@ -30,21 +28,14 @@ from .kalkulasi import (
     GOLONGAN_DAYA,
     KATEGORI_ALAT,
 )
-from .anomaly_detector import (
-    deteksi_anomali,
-    evaluasi_anomali_pascabayar,
-    evaluasi_anomali_prabayar,
-    BATAS_TOLERANSI_ANOMALI,
-)
 
 __all__ = [
-    "get_tarif", "hitung_biaya_beban", "hitung_watt", "hitung_kwh_alat",
-    "hitung_tagihan", "hitung_emisi", "hitung_ike", "hitung_kwh_per_org",
+    "get_tarif", "hitung_watt", "hitung_kwh_alat",
+    "hitung_tagihan", "hitung_biaya_materai",
+    "hitung_emisi", "hitung_ike", "hitung_kwh_per_org",
     "hitung_kwh_dari_token", "hitung_hari_berjalan",
     "hitung_estimasi_kwh_periode", "hitung_saldo_token_awal",
     "hitung_token_terpakai_aktual",
-    "deteksi_anomali", "evaluasi_anomali_pascabayar",
-    "evaluasi_anomali_prabayar",
     "TARIF_PER_GOLONGAN", "FAKTOR_EMISI_JAMALI_OM", "PBJT_RUMAH_TANGGA",
-    "BATAS_TOLERANSI_ANOMALI", "GOLONGAN_DAYA", "KATEGORI_ALAT",
+    "GOLONGAN_DAYA", "KATEGORI_ALAT",
 ]
