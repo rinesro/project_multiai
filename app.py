@@ -8,7 +8,7 @@ from datetime import date
 
 warnings.filterwarnings("ignore")
 
-# core/, action_analist/, services/, models/, optimizer/, data/ sekarang ada DI
+# core/, action_analyst/, services/, models/, optimizer/, data/ sekarang ada DI
 # DALAM backend/ (dipindah supaya Vercel Services bisa bundling backend
 # sebagai satu unit mandiri — lihat backend/main.py untuk detail
 # alasannya). app.py (Streamlit) tetap butuh modul yang sama, jadi
@@ -67,7 +67,7 @@ from core.kalkulasi import (
     hitung_token_terpakai_aktual,
     GOLONGAN_DAYA, PBJT_RUMAH_TANGGA, KATEGORI_ALAT,
 )
-from action_analist.ike_profiler import profil_ike
+from action_analyst.ike_profiler import profil_ike
 from models.dsm_classifier   import DSMClassifier
 from optimizer.brute_force   import optimasi
 
@@ -457,7 +457,7 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
 
     # ── Status Anomali ───────────────────────────────────────────────────────
     # 5 kemungkinan status (2 untuk pascabayar, 5 untuk prabayar) —
-    # pesan_anomali sudah lengkap dari action_analist/anomaly_evaluator.py, tidak
+    # pesan_anomali sudah lengkap dari action_analyst/anomaly_evaluator.py, tidak
     # perlu disusun ulang di sini.
     _RENDER_ANOMALI = {
         "anomali"             : (st.error,   "⚠️ "),
@@ -530,11 +530,6 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
         m3.metric("Total Konsumsi",    f"{payload['total_kwh']} kWh/bln")
         m4.metric("Emisi CO₂",
                   f"{payload['emisi_sebelum']['emisi_kg_bulan']} kg/bln")
-        st.caption(
-            "⚠️ Semua angka di atas bersifat **prediktif** — dihitung dari "
-            "spesifikasi & durasi pakai yang Anda masukkan, bukan dari "
-            "pembacaan meteran langsung. Hasil aktual bisa berbeda."
-        )
 
         # ── Hasil optimasi (jika aktif) — angka ringkasan saja, daftar per-alat
         # sudah ditampilkan di bagian rekomendasi atas ────────────────────────────
@@ -599,6 +594,20 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
 | Biaya Materai | Rp {payload['biaya_materai']:,.0f} |
 | **Estimasi total** | **Rp {payload['estimasi_rp']:,.0f}** |
         """)
+            if payload['is_prabayar']:
+                st.caption(
+                    "⚠️ Estimasi nilai konsumsi ini bersifat prediktif — dihitung "
+                    "dari tarif resmi PLN dan spesifikasi/durasi pakai peralatan "
+                    "yang Anda masukkan, bukan dari pembacaan meteran langsung. "
+                    "Nominal aktual bisa berbeda dari saldo token sesungguhnya."
+                )
+            else:
+                st.caption(
+                    "⚠️ Estimasi tagihan ini bersifat prediktif — dihitung dari "
+                    "tarif resmi PLN dan spesifikasi/durasi pakai peralatan yang "
+                    "Anda masukkan, bukan dari pembacaan meteran langsung. "
+                    "Nominal aktual di rekening/struk bisa berbeda."
+                )
 
         # ── Rincian token (khusus prabayar) ─────────────────────────────────────
         if payload['is_prabayar'] and 'token_context' in payload:

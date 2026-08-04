@@ -148,11 +148,6 @@ export function HasilAnalisis({ hasil }: { hasil: AnalisisResponse }) {
         <MetricCard label="Konsumsi per Penghuni" value={formatKwh(hasil.kwh_per_org)} />
         <MetricCard label="Emisi CO₂" value={`${hasil.emisi_sebelum.emisi_kg_bulan} kg/bln`} />
       </div>
-      <p className="text-xs leading-relaxed text-cream-dim/70">
-        ⚠️ Semua angka di atas bersifat <strong>prediktif</strong> — dihitung dari
-        spesifikasi & durasi pakai yang Anda masukkan, bukan dari pembacaan
-        meteran langsung. Hasil aktual bisa berbeda.
-      </p>
 
       {opt.aktif && (
         <div className="grid gap-3 sm:grid-cols-3">
@@ -204,7 +199,14 @@ export function HasilAnalisis({ hasil }: { hasil: AnalisisResponse }) {
             </>
           )}
         </div>
+        <p className="mt-4 text-xs leading-relaxed text-cream-dim/70">
+          ⚠️{" "}
+          {hasil.is_prabayar
+            ? "Estimasi nilai konsumsi ini bersifat prediktif — dihitung dari tarif resmi PLN dan spesifikasi/durasi pakai peralatan yang Anda masukkan, bukan dari pembacaan meteran langsung. Nominal aktual bisa berbeda dari saldo token sesungguhnya."
+            : "Estimasi tagihan ini bersifat prediktif — dihitung dari tarif resmi PLN dan spesifikasi/durasi pakai peralatan yang Anda masukkan, bukan dari pembacaan meteran langsung. Nominal aktual di rekening/struk bisa berbeda."}
+        </p>
       </Expandable>
+
         </>
       )}
     </div>
