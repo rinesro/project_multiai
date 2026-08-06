@@ -8,7 +8,7 @@ from datetime import date
 
 warnings.filterwarnings("ignore")
 
-# core/, action_analyst/, services/, models/, optimizer/, data/ sekarang ada DI
+# core/, action_analist/, services/, models/, optimizer/, data/ sekarang ada DI
 # DALAM backend/ (dipindah supaya Vercel Services bisa bundling backend
 # sebagai satu unit mandiri — lihat backend/main.py untuk detail
 # alasannya). app.py (Streamlit) tetap butuh modul yang sama, jadi
@@ -67,7 +67,7 @@ from core.kalkulasi import (
     hitung_token_terpakai_aktual,
     GOLONGAN_DAYA, PBJT_RUMAH_TANGGA, KATEGORI_ALAT,
 )
-from action_analyst.ike_profiler import profil_ike
+from action_analist.ike_profiler import profil_ike
 from models.dsm_classifier   import DSMClassifier
 from optimizer.brute_force   import optimasi
 
@@ -175,7 +175,7 @@ with c4:
     daya_va = st.selectbox(
         "Daya Tersambung PLN",
         options=GOLONGAN_DAYA,
-        index=1,
+        index=2,  # default 1.300 VA — geser dari index=1 karena 450VA ditambah di depan list
         help="Tertera di meteran atau rekening listrik Anda"
     )
 with c5:
@@ -186,7 +186,21 @@ with c5:
     )
     is_prabayar = (jenis_meteran == "Prabayar (Token)")
 
-tarif_aktif = get_tarif(daya_va)
+# Status subsidi HANYA relevan untuk 450/900 VA — golongan >=1.300VA
+# cuma punya satu tarif tanpa distingsi subsidi (lihat core/kalkulasi.py).
+if daya_va in (450, 900):
+    is_subsidi = st.checkbox(
+        "Pelanggan bersubsidi",
+        value=False,
+        help=(
+            "900 VA: Rp605/kWh (subsidi) vs Rp1.352/kWh (RTM/non-subsidi). "
+            "450 VA cuma ada satu tarif, tidak berpengaruh ke perhitungan."
+        ),
+    )
+else:
+    is_subsidi = False
+
+tarif_aktif = get_tarif(daya_va, is_subsidi)
 st.info(
     f"Golongan {daya_va} VA · "
     f"Tarif Rp {tarif_aktif:,.2f}/kWh · "
@@ -396,7 +410,7 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
 
     with st.spinner("⚙️ Lapis 1 — Kalkulasi & deteksi anomali..."):
         # ── LAPIS 1: Kalkulasi & Anomali ─────────────────────────────────────
-        agent   = DataIngestionValidatorAgent(int(daya_va), is_prabayar)
+        agent   = DataIngestionValidatorAgent(int(daya_va), is_prabayar, is_subsidi)
         payload = agent.proses_data(
             luas_rumah, penghuni, daftar_perangkat,
             tagihan_asli  = tagihan_asli,
@@ -405,12 +419,12 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
 
     with st.spinner("🧠 Lapis 2 — Klasifikasi IKE & DSM..."):
         # ── LAPIS 2a: Fuzzy IKE ───────────────────────────────────────────────
-        # ike & kwh_per_org sudah dihitung di Lapis 1 (payload) —
-        # profil_ike() tinggal menerima, tidak menghitung ulang.
-        ada_ac    = any(a['kategori'] == 'Pendingin' for a in daftar_perangkat)
-        label_ike = profil_ike(
-            payload['ike'], payload['kwh_per_org'], ada_ac
-        )
+        # ike sudah dihitung di Lapis 1 (payload) — profil_ike() tinggal
+        # menerima, tidak menghitung ulang. Sejak perombakan kalibrasi
+        # 5-lapis, profil_ike() cuma butuh IKE saja — ada_ac (dulu dipakai
+        # untuk skema ber-AC/tidak) sudah dihapus total dari sistem, tidak
+        # dihitung lagi di sini karena tidak dipakai di mana pun lagi.
+        label_ike = profil_ike(payload['ike'])
 
         # ── LAPIS 2b: DSM Classifier ──────────────────────────────────────────
         # Pakai payload['alat_valid'] (hasil Lapis 1, sudah ada watt/kwh_bulan/
@@ -424,7 +438,6 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
         hasil_opt = optimasi(
             ringkasan_dsm = ringkasan,
             luas_m2       = float(luas_rumah),
-            ada_ac        = ada_ac,
             tarif_kwh     = agent.TARIF_KWH,
             pbjt          = agent.PBJT,
             is_prabayar   = is_prabayar,
@@ -457,7 +470,7 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
 
     # ── Status Anomali ───────────────────────────────────────────────────────
     # 5 kemungkinan status (2 untuk pascabayar, 5 untuk prabayar) —
-    # pesan_anomali sudah lengkap dari action_analyst/anomaly_evaluator.py, tidak
+    # pesan_anomali sudah lengkap dari action_analist/anomaly_evaluator.py, tidak
     # perlu disusun ulang di sini.
     _RENDER_ANOMALI = {
         "anomali"             : (st.error,   "⚠️ "),

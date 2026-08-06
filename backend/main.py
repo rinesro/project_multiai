@@ -75,7 +75,10 @@ _preload_vendored_libgomp()
 # menimpa env var yang sudah ada, jadi aman dipakai di kedua konteks.
 load_dotenv(Path(__file__).parent / ".env")
 
-from core.kalkulasi import GOLONGAN_DAYA, KATEGORI_ALAT, PBJT_RUMAH_TANGGA, get_tarif
+from core.kalkulasi import (
+    GOLONGAN_DAYA, KATEGORI_ALAT, PBJT_RUMAH_TANGGA, get_tarif,
+    TARIF_DAYA_RENDAH,
+)
 from action_analist.ike_profiler import profil_ike
 from models.dsm_classifier import DSMClassifier
 from optimizer.brute_force import optimasi
@@ -142,7 +145,17 @@ def get_referensi():
     """
     return ReferensiResponse(
         golongan_daya=GOLONGAN_DAYA,
-        tarif_per_golongan={str(v): get_tarif(v) for v in GOLONGAN_DAYA},
+        # >=1.300 VA: satu tarif per golongan, tidak ada distingsi subsidi.
+        tarif_per_golongan={
+            str(v): get_tarif(v) for v in GOLONGAN_DAYA if v >= 1300
+        },
+        # 450 & 900 VA: dua opsi (subsidi/non-subsidi) untuk 900VA, 450VA
+        # cuma satu tarif tapi tetap dibungkus struktur yang sama supaya
+        # frontend tidak perlu kasus khusus per VA.
+        tarif_daya_rendah={
+            "450": {"subsidi": TARIF_DAYA_RENDAH[450], "non_subsidi": TARIF_DAYA_RENDAH[450]},
+            "900": dict(TARIF_DAYA_RENDAH[900]),
+        },
         kategori_alat=KATEGORI_ALAT,
         fokus_optimasi=["Biaya", "Lingkungan"],
         pbjt_rumah_tangga=PBJT_RUMAH_TANGGA,
@@ -189,7 +202,7 @@ def post_analisis(req: AnalisisRequest):
         )
 
     # ── Lapis 1 ────────────────────────────────────────────────────────────
-    agent = DataIngestionValidatorAgent(req.daya_va, req.is_prabayar)
+    agent = DataIngestionValidatorAgent(req.daya_va, req.is_prabayar, req.is_subsidi)
 
     daftar_alat = [a.model_dump() for a in req.daftar_alat]
     token_context = (
@@ -208,8 +221,10 @@ def post_analisis(req: AnalisisRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
     # ── Lapis 2 ────────────────────────────────────────────────────────────
-    ada_ac = any(a['kategori'] == 'Pendingin' for a in daftar_alat)
-    label_ike = profil_ike(payload['ike'], payload['kwh_per_org'], ada_ac)
+    # ada_ac (dulu dipakai profil_ike() & optimasi() untuk skema ber-AC/
+    # tidak) sudah dihapus total dari sistem sejak perombakan kalibrasi
+    # 5-lapis — tidak dihitung lagi karena tidak dipakai di mana pun lagi.
+    label_ike = profil_ike(payload['ike'])
 
     hasil_dsm = _dsm_clf.prediksi_batch(payload['alat_valid'])
     ringkasan_dsm = _dsm_clf.ringkasan_dsm(hasil_dsm)
@@ -218,7 +233,6 @@ def post_analisis(req: AnalisisRequest):
     hasil_opt = optimasi(
         ringkasan_dsm=ringkasan_dsm,
         luas_m2=float(req.luas_rumah),
-        ada_ac=ada_ac,
         tarif_kwh=agent.TARIF_KWH,
         pbjt=agent.PBJT,
         is_prabayar=req.is_prabayar,

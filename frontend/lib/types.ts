@@ -41,6 +41,7 @@ export interface TokenContextInput {
 export interface AnalisisRequest {
   daya_va: number;
   is_prabayar: boolean;
+  is_subsidi: boolean;
   luas_rumah: number;
   penghuni: number;
   tagihan_asli?: number | null;
@@ -160,6 +161,7 @@ export interface AnalisisResponse {
 export interface ReferensiResponse {
   golongan_daya: number[];
   tarif_per_golongan: Record<string, number>;
+  tarif_daya_rendah: Record<string, { subsidi: number; non_subsidi: number }>;
   kategori_alat: string[];
   fokus_optimasi: string[];
   pbjt_rumah_tangga: number;

@@ -23,6 +23,7 @@ from .kalkulasi import (
     hitung_saldo_token_awal,
     hitung_token_terpakai_aktual,
     TARIF_PER_GOLONGAN,
+    TARIF_DAYA_RENDAH,
     FAKTOR_EMISI_JAMALI_OM,
     PBJT_RUMAH_TANGGA,
     GOLONGAN_DAYA,
@@ -36,6 +37,6 @@ __all__ = [
     "hitung_kwh_dari_token", "hitung_hari_berjalan",
     "hitung_estimasi_kwh_periode", "hitung_saldo_token_awal",
     "hitung_token_terpakai_aktual",
-    "TARIF_PER_GOLONGAN", "FAKTOR_EMISI_JAMALI_OM", "PBJT_RUMAH_TANGGA",
+    "TARIF_PER_GOLONGAN", "TARIF_DAYA_RENDAH", "FAKTOR_EMISI_JAMALI_OM", "PBJT_RUMAH_TANGGA",
     "GOLONGAN_DAYA", "KATEGORI_ALAT",
 ]

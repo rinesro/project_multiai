@@ -45,6 +45,10 @@ class TokenContextInput(BaseModel):
 class AnalisisRequest(BaseModel):
     daya_va: int = Field(gt=0)
     is_prabayar: bool
+    is_subsidi: bool = Field(
+        default=False,
+        description="Cuma relevan untuk 450/900 VA — golongan >=1300VA cuma satu tarif",
+    )
     luas_rumah: float = Field(gt=0, description="m²")
     penghuni: int = Field(ge=1)
     tagihan_asli: Optional[float] = Field(default=None, description="Rp — wajib kalau is_prabayar=False")
@@ -96,7 +100,7 @@ class AnalisisResponse(BaseModel):
     tagihan_asli: Optional[float] = None
     token_context: Optional[dict] = None
 
-    # Lapis 1 — status prediksi anomali (skema seragam, lihat core/anomaly_predictor.py)
+    # Lapis 1 — status prediksi anomali (skema seragam, lihat action_analist/anomaly_evaluator.py)
     status_anomali: str
     selisih_pct: Optional[float] = None
     pesan_anomali: str
@@ -114,7 +118,8 @@ class AnalisisResponse(BaseModel):
 
 class ReferensiResponse(BaseModel):
     golongan_daya: list[int]
-    tarif_per_golongan: dict[str, float]  # key string krn JSON tidak izinkan int key
+    tarif_per_golongan: dict[str, float]  # >=1.300 VA, satu tarif per golongan (key string krn JSON tidak izinkan int key)
+    tarif_daya_rendah: dict[str, dict[str, float]]  # 450 & 900 VA -- tergantung status subsidi
     kategori_alat: list[str]
     fokus_optimasi: list[str]
     pbjt_rumah_tangga: float

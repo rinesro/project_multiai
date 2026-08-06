@@ -29,6 +29,7 @@ export default function Home() {
 
   const [dayaVa, setDayaVa] = useState(1300);
   const [isPrabayar, setIsPrabayar] = useState(true);
+  const [isSubsidi, setIsSubsidi] = useState(false);
   const [luasRumah, setLuasRumah] = useState(45);
   const [penghuni, setPenghuni] = useState(3);
   const [tagihanAsli, setTagihanAsli] = useState(600000);
@@ -52,7 +53,10 @@ export default function Home() {
       );
   }, []);
 
-  const tarifKwh = referensi?.tarif_per_golongan[String(dayaVa)] ?? 0;
+  const tarifRendah = referensi?.tarif_daya_rendah[String(dayaVa)];
+  const tarifKwh = tarifRendah
+    ? (isSubsidi ? tarifRendah.subsidi : tarifRendah.non_subsidi)
+    : (referensi?.tarif_per_golongan[String(dayaVa)] ?? 0);
   const pbjt = referensi?.pbjt_rumah_tangga ?? 0.024;
 
   async function submit() {
@@ -67,6 +71,7 @@ export default function Home() {
       const result = await postAnalisis({
         daya_va: dayaVa,
         is_prabayar: isPrabayar,
+        is_subsidi: isSubsidi,
         luas_rumah: luasRumah,
         penghuni,
         tagihan_asli: isPrabayar ? null : tagihanAsli,
@@ -110,6 +115,8 @@ export default function Home() {
           onDayaVaChange={setDayaVa}
           isPrabayar={isPrabayar}
           onIsPrabayarChange={setIsPrabayar}
+          isSubsidi={isSubsidi}
+          onIsSubsidiChange={setIsSubsidi}
         />
         <ProfilSection
           luasRumah={luasRumah}

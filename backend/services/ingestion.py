@@ -33,10 +33,12 @@ from action_analist.anomaly_evaluator import (
 
 
 class DataIngestionValidatorAgent:
-    def __init__(self, daya_va: int = 1300, is_prabayar: bool = False):
+    def __init__(self, daya_va: int = 1300, is_prabayar: bool = False,
+                is_subsidi: bool = False):
         self.daya_va     = daya_va
         self.is_prabayar = is_prabayar
-        self.TARIF_KWH   = get_tarif(daya_va)
+        self.is_subsidi  = is_subsidi  # cuma relevan untuk 450/900 VA
+        self.TARIF_KWH   = get_tarif(daya_va, is_subsidi)
         self.PBJT        = PBJT_RUMAH_TANGGA  # alias, dipakai pipeline & optimasi()
         # CATATAN PEROMBAKAN: self.BIAYA_BEBAN (Rekening Minimum) sudah
         # dihapus total — rumus resmi PLN Persero untuk tagihan pascabayar

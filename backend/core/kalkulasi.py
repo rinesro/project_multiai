@@ -28,7 +28,11 @@ CATATAN PEMISAHAN — deteksi anomali:
 
 Referensi regulasi:
     [1] Tarif PLN — PT PLN (Persero), stabil sejak 1 Januari 2022 hingga
-        Triwulan III 2026 (Juli–September 2026)
+        Triwulan III 2026 (Juli–September 2026), dikonfirmasi ulang
+        untuk periode 1–7 Agustus 2026: "Cek Tarif Listrik PLN Terbaru
+        Agustus 2026", RRI.co.id (dikutip dari laman resmi PLN),
+        https://rri.co.id/ekonomi/bisnis/2620057/
+        cek-tarif-listrik-pln-terbaru-agustus-2026 (diakses 2 Agustus 2026)
     [2] Faktor Emisi GRK Grid Jamali OM 0,80 kgCO₂/kWh — ESDM 2019
     [3] PBJT 2,4% — Perda DKI Jakarta No.1/2024 (khusus rumah tangga
         DKI Jakarta — tarif PBJT-TL nasional berkisar 3%-10% tergantung
@@ -42,6 +46,18 @@ Referensi regulasi:
         Badan Pendapatan Daerah Provinsi DKI Jakarta (2025),
         https://dpp.jakarta.go.id/berita/sobat-pajak-ini-dia-segala-
         hal-tentang-pbjt-tenaga-listrik
+
+CATATAN PERBAIKAN TARIF 450/900 VA (per sumber [1], Agustus 2026):
+    Status subsidi TIDAK BISA disimpulkan dari daya (VA) saja untuk
+    golongan 450 & 900 VA — beda dari golongan ≥1.300 VA yang cuma
+    punya SATU tarif tanpa distingsi subsidi. Rinciannya:
+        450 VA             : Rp415/kWh   (cuma ada 1 tarif, selalu subsidi)
+        900 VA bersubsidi   : Rp605/kWh
+        900 VA RTM (non-subsidi) : Rp1.352/kWh
+    Sebelumnya modul ini SELALU mengasumsikan 900 VA = RTM (non-subsidi,
+    Rp1.352) tanpa opsi subsidi sama sekali, dan 450 VA tidak ada
+    opsinya di dropdown — celah ini sekarang diperbaiki lewat parameter
+    is_subsidi di get_tarif().
 
 CATATAN PERUBAHAN RUMUS TAGIHAN (perombakan besar):
     Komponen "Biaya Beban"/Rekening Minimum (RM1 = 40 jam × daya ×
@@ -60,8 +76,15 @@ from typing import Optional
 
 # ── Konstanta regulasi ────────────────────────────────────────────────────────
 
+# 450 & 900 VA: status subsidi mengubah tarif drastis, TIDAK bisa
+# disimpulkan dari VA saja. 450 VA cuma ada 1 tarif (selalu subsidi). [1]
+TARIF_DAYA_RENDAH = {
+    450: 415.00,
+    900: {"subsidi": 605.00, "non_subsidi": 1352.00},
+}
+
+# ≥1.300 VA: cuma SATU tarif per golongan, tidak ada distingsi subsidi. [1]
 TARIF_PER_GOLONGAN = {
-    (0,      900):  1352.00,   # R-1/TR 900 VA RTM       [1]
     (901,   2200):  1444.70,   # R-1/TR 1.300 & 2.200 VA [1]
     (2201,  5500):  1699.53,   # R-2/TR 3.500–5.500 VA   [1]
     (5501, 999999): 1699.53,   # R-3/TR 6.600 VA ke atas [1]
@@ -71,7 +94,7 @@ FAKTOR_EMISI_JAMALI_OM  = 0.80    # kgCO₂/kWh — Grid Jamali OM [2]
 PBJT_RUMAH_TANGGA       = 0.024   # 2,4% [3]
 
 # Golongan daya standar PLN (dipakai UI & generator data)
-GOLONGAN_DAYA = [900, 1300, 2200, 3500, 4400, 5500, 6600, 7700, 10600, 13200]
+GOLONGAN_DAYA = [450, 900, 1300, 2200, 3500, 4400, 5500, 6600, 7700, 10600, 13200]
 
 # 8 kategori peralatan standar — sebelumnya diduplikasi terpisah di
 # app.py (KATEGORI_OPTIONS) dan models/dsm_classifier.py (KATEGORI_VALID).
@@ -91,8 +114,20 @@ KATEGORI_ALAT = [
 
 # ── Fungsi dasar tarif ─────────────────────────────────────────────────────────
 
-def get_tarif(daya_va: int) -> float:
-    """Tarif Rp/kWh berdasarkan daya tersambung (VA). [1]"""
+def get_tarif(daya_va: int, is_subsidi: bool = False) -> float:
+    """
+    Tarif Rp/kWh berdasarkan daya tersambung (VA) dan status subsidi. [1]
+
+    Status subsidi HANYA relevan untuk 450 & 900 VA. Golongan ≥1.300 VA
+    cuma punya satu tarif — parameter is_subsidi diabaikan di sana.
+    """
+    if daya_va <= 450:
+        return TARIF_DAYA_RENDAH[450]
+    if daya_va <= 900:
+        return (
+            TARIF_DAYA_RENDAH[900]["subsidi"] if is_subsidi
+            else TARIF_DAYA_RENDAH[900]["non_subsidi"]
+        )
     for (lo, hi), tarif in TARIF_PER_GOLONGAN.items():
         if lo <= daya_va <= hi:
             return tarif

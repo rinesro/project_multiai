@@ -1,263 +1,139 @@
 """
 action_analist/ike_profiler.py
-======================
-(Riwayat lokasi: awalnya fuzzy/ike_profiler.py, sempat dipindah ke
-core/ike_profiler.py, dikembalikan ke folder terpisah (di-rename jadi
-action_analist/) — digabung satu folder
-dengan anomaly_evaluator.py karena keduanya modul "evaluasi/klasifikasi
-hasil" (bukan rumus regulasi murni seperti core/kalkulasi.py).)
+================================
+Klasifikasi fuzzy Intensitas Konsumsi Energi (IKE) rumah tangga Jakarta.
 
-Modul Fuzzy Mamdani untuk klasifikasi Intensitas Konsumsi Energi (IKE)
-rumah tangga Jakarta.
+PEROMBAKAN BESAR (menggantikan sistem Mamdani 2-variabel lama):
+    Sistem SEBELUMNYA memakai Fuzzy Mamdani dengan 2 variabel input
+    (IKE + kWh/penghuni), 9 rule, dan skema terpisah untuk rumah
+    ber-AC/tidak ber-AC, mengacu ke Permen ESDM 13/2012 (yang sudah
+    DICABUT oleh Permen ESDM 9/2018, tanpa pengganti untuk rumah
+    tangga — lihat catatan di bawah).
 
-Referensi standar:
-    Pedoman Teknis Konservasi Energi dan Penggunaan Energi Secara Efisien
-    pada Bangunan Gedung, Departemen Pendidikan Nasional RI
-    (digunakan sebagai acuan IKE rumah tangga, bukan gedung komersial)
+    Sistem SEKARANG memakai klasifikasi fuzzy LANGSUNG 1 variabel
+    (IKE saja) — 5 himpunan trapesium yang derajat keanggotaannya
+    dihitung langsung dari nilai IKE, kelas dengan derajat keanggotaan
+    tertinggi yang dipilih (fuzzy argmax). Tidak ada lagi rule base,
+    tidak ada lagi defuzzifikasi centroid, tidak ada lagi pembedaan
+    ber-AC/tidak ber-AC, dan kWh/penghuni TIDAK LAGI dipakai sebagai
+    input klasifikasi (tetap dihitung & ditampilkan sebagai metrik
+    informasional terpisah di dashboard, lihat services/ingestion.py).
 
-    Catatan: Permen ESDM No.3 Tahun 2025 Lampiran II menggunakan satuan
-    kWh/m²/tahun untuk gedung pemerintah. Modul ini menggunakan satuan
-    kWh/m²/bulan sesuai pedoman Depdiknas untuk konteks rumah tangga.
+    Alasan penyederhanaan ini: threshold baru sudah melalui triangulasi
+    5 lapis (lihat di bawah) yang jauh lebih tervalidasi daripada
+    rule base Mamdani lama yang dirancang tanpa dasar empiris eksplisit
+    untuk bobot tiap rule.
 
-Kategori IKE output (5 label, sesuai standar):
+METODOLOGI KALIBRASI — triangulasi 5 lapis (notebook
+Kalibrasi_IKE_Final.ipynb, disatukan jadi satu set ambang batas final):
+
+    1. REGULATIF — Permen ESDM No.13/2012 tentang Pedoman Pelaksanaan
+       Konservasi Energi (skema "non_ac"). PENTING: regulasi ini SUDAH
+       DICABUT oleh Permen ESDM No.9/2018, dan sampai saat kalibrasi
+       ini dibuat, TIDAK ADA regulasi pengganti yang menetapkan standar
+       IKE khusus rumah tangga (Permen ESDM No.3/2025 Lampiran II yang
+       lebih baru mengatur gedung PEMERINTAH, satuan kWh/m²/TAHUN,
+       bukan rumah tangga per bulan). Permen 13/2012 tetap dipakai
+       sebagai SALAH SATU acuan (bukan satu-satunya), dengan status
+       "sudah dicabut" dinyatakan eksplisit -- bukan diklaim sebagai
+       regulasi yang masih berlaku.
+    2. EMPIRIS — Utomo, D. P., Purnama, A. A., & Adryan, R. (2021).
+       [Judul lengkap terkait audit energi rumah tangga]. Prosiding
+       IRWNS ke-12, Politeknik Negeri Bandung. Data primer n=20 rumah,
+       diolah ulang dengan Jenks natural breaks (bukan equal-width
+       binning seperti Tabel 6 aslinya, yang tidak sesuai untuk
+       distribusi data yang skewed) dan uji normalitas Shapiro-Wilk.
+    3. DEDUKTIF — profil peralatan rumah tangga representatif
+       (spesifikasi & pola pakai wajar per kategori alat).
+    4. KARBON — plafon konsumsi listrik rumah tangga diturunkan dari
+       target 1,5°C Hot or Cool Institute (Akenji et al., 2021,
+       "1.5-Degree Lifestyles"), porsi listrik dari total jatah karbon
+       personal ASUMSI PENELITI (PORSI_LISTRIK=0.20, belum ada
+       rujukan spesifik per rumah tangga Indonesia).
+    5. AFORDABILITAS — ambang energy burden 6% dari ACEEE (Drehobl,
+       Ross & Ayala, 2020), dikalikan estimasi pengeluaran rumah
+       tangga (PENGELUARAN_RT — ASUMSI PENELITI Rp4.000.000/bulan,
+       BELUM diverifikasi ke data Susenas BPS terbaru).
+
+    Kelima lapis ini direkonsiliasi (natural breaks empiris dijadikan
+    basis utama, dikoreksi oleh batas atas dari lapis karbon &
+    afordabilitas yang lebih ketat) menjadi satu set batas kelas
+    (band), lalu di-"fuzzifikasi" dengan zona transisi 10% di tiap
+    batas untuk menghindari klasifikasi biner yang kaku di
+    perbatasan kelas -- rumah dengan IKE persis di garis batas tidak
+    dipaksa jatuh ke satu kelas secara tiba-tiba.
+
+CATATAN JUJUR UNTUK BAB 3/5: layer 4 (karbon) dan 5 (afordabilitas)
+masing-masing punya SATU angka yang masih berstatus asumsi peneliti,
+belum divalidasi ke sumber resmi Indonesia (lihat PORSI_LISTRIK dan
+PENGELUARAN_RT di atas). Ini WAJIB diungkap eksplisit di keterbatasan
+penelitian, bukan disembunyikan.
+
+Kategori IKE output (5 label):
     Sangat Efisien | Efisien | Cukup Efisien | Boros | Sangat Boros
 
 Input:
-    luas_m2    (float) : luas bangunan dalam m²
-    penghuni   (int)   : jumlah penghuni
-    total_kwh  (float) : total konsumsi listrik bulanan (kWh)
-                         dihitung dari Σ (V × I × jam × 30) / 1000
-                         atas semua peralatan yang diinput user
-    ada_ac     (bool)  : True jika ada peralatan kategori "Pendingin"
+    ike (float) : Intensitas Konsumsi Energi (kWh/m²/bulan),
+                  dari core.kalkulasi.hitung_ike() -- SUDAH dihitung
+                  sekali di Lapis 1, tidak dihitung ulang di sini.
 
 Output:
-    str : label IKE — salah satu dari 5 kategori di atas
+    str : salah satu dari 5 kategori di atas
 """
 
-import numpy as np
+# Parameter trapesium [a, b, c, d]: naik dari a ke b, datar dari b ke c,
+# turun dari c ke d. Hasil kalibrasi 5-lapis (lihat docstring modul).
+# Kelas PERTAMA (a==b==0): plateau dari titik 0, tidak ada IKE negatif.
+# Kelas TERAKHIR (c==d): plateau terbuka ke atas (lihat _trapmf).
+MF_IKE = {
+    "Sangat Efisien": (0.0,   0.0,   1.586,  1.938),
+    "Efisien"        : (1.669, 1.855, 2.597,  2.783),
+    "Cukup Efisien"  : (2.5,   2.88,  4.396,  4.774),
+    "Boros"          : (4.303, 4.867, 7.119,  7.682),
+    "Sangat Boros"   : (6.956, 7.844, 11.84, 11.84),
+}
 
 
-# ── Fungsi keanggotaan dasar ──────────────────────────────────────────────────
-
-def _trimf(x: np.ndarray, a: float, b: float, c: float) -> np.ndarray:
+def _trapmf(x: float, a: float, b: float, c: float, d: float) -> float:
     """
-    Fungsi keanggotaan segitiga (triangular membership function).
+    Fungsi keanggotaan trapesium (a<=b<=c<=d): naik dari a ke b, datar
+    dari b ke c, turun dari c ke d.
 
-    Bentuk: naik dari a ke b, turun dari b ke c.
-    Nilai 1.0 hanya di titik b, nilai 0.0 di luar [a, c].
+    PERBAIKAN dari versi notebook: kasus c==d (dipakai khusus kelas
+    TERAKHIR, "Sangat Boros") SENGAJA diperlakukan sebagai plateau
+    TERBUKA ke atas -- versi notebook aslinya (dipakai cuma untuk
+    plotting, universe dibatasi manual) memberi keanggotaan 0 untuk
+    x melebihi d saat c==d, yang berarti IKE sangat tinggi bisa
+    berakhir TIDAK masuk kelas manapun. Kelas terakhir tidak boleh
+    punya batas atas -- IKE setinggi apa pun tetap "Sangat Boros".
     """
-    x = np.asarray(x, dtype=float)
-    left  = (x - a) / (b - a) if b != a else (x >= b).astype(float)
-    right = (c - x) / (c - b) if c != b else (x <= b).astype(float)
-    return np.clip(np.minimum(left, right), 0.0, 1.0)
+    if x <= a:
+        return 1.0 if a == b else 0.0
+    if x < b:
+        return (x - a) / (b - a)
+    if x <= c:
+        return 1.0
+    if c == d:
+        return 1.0  # plateau terbuka ke atas -- lihat catatan di atas
+    if x < d:
+        return (d - x) / (d - c)
+    return 0.0
 
 
-def _trapmf(x: np.ndarray,
-            a: float, b: float,
-            c: float, d: float) -> np.ndarray:
+def profil_ike(ike: float) -> str:
     """
-    Fungsi keanggotaan trapesium (trapezoidal membership function).
-
-    Bentuk: naik dari a ke b, datar dari b ke c, turun dari c ke d.
-    Nilai 1.0 di interval [b, c], nilai 0.0 di luar [a, d].
-    """
-    x = np.asarray(x, dtype=float)
-    y = np.zeros_like(x)
-    if b != a:
-        y = np.maximum(y, np.minimum((x - a) / (b - a), 1.0))
-    else:
-        y = np.maximum(y, (x >= a).astype(float))
-    right = (d - x) / (d - c) if d != c else (x <= d).astype(float)
-    y = np.minimum(y, np.where(x <= c, 1.0, right))
-    return np.clip(y, 0.0, 1.0)
-
-
-def _derajat(func, nilai: float) -> float:
-    """Menghitung derajat keanggotaan satu nilai skalar."""
-    return float(func(np.array([nilai]))[0])
-
-
-def _defuzzifikasi_centroid(output_sets: dict,
-                             aktivasi: dict,
-                             universe: np.ndarray = None) -> float:
-    """
-    Defuzzifikasi metode centroid (center of gravity).
-
-    Mengagregasi semua output fuzzy yang aktif menggunakan
-    operator MAX, lalu menghitung pusat massa area agregat.
+    Klasifikasi fuzzy langsung: hitung derajat keanggotaan IKE di
+    kelima himpunan trapesium MF_IKE, kembalikan kelas dengan derajat
+    keanggotaan TERTINGGI (fuzzy argmax) -- bukan lagi lewat rule base
+    Mamdani + defuzzifikasi centroid seperti sistem lama.
 
     Parameters:
-        output_sets : dict nama → fungsi keanggotaan output
-        aktivasi    : dict nama → kekuatan aktivasi (0.0–1.0)
-        universe    : array titik evaluasi (default: 0–100, 1001 titik)
+        ike : IKE (kWh/m²/bulan), dari core.kalkulasi.hitung_ike()
 
     Returns:
-        float : nilai crisp hasil defuzzifikasi
+        str : salah satu dari 'Sangat Efisien' | 'Efisien' |
+              'Cukup Efisien' | 'Boros' | 'Sangat Boros'
     """
-    if universe is None:
-        universe = np.linspace(0, 100, 1001)
-
-    agregat = np.zeros_like(universe)
-    for label, kekuatan in aktivasi.items():
-        if kekuatan <= 0:
-            continue
-        terpotong = np.minimum(kekuatan, output_sets[label](universe))
-        agregat = np.maximum(agregat, terpotong)
-
-    if agregat.sum() == 0:
-        return 0.0
-    return float(np.sum(universe * agregat) / np.sum(agregat))
-
-
-# ── Fungsi utama ──────────────────────────────────────────────────────────────
-
-def profil_ike(ike: float,
-               kwh_per_org: float,
-               ada_ac: bool) -> str:
-    """
-    Mengklasifikasikan profil IKE rumah tangga menggunakan
-    inferensi Fuzzy Mamdani dua variabel input.
-
-    PENTING — perubahan sejak refactor konsolidasi kalkulasi:
-    Fungsi ini TIDAK LAGI menghitung IKE dan kWh/penghuni sendiri.
-    Kedua nilai itu sudah dihitung sekali di Lapis 1 (app.py, lewat
-    core/kalkulasi.py) dan tinggal diterima di sini sebagai parameter,
-    supaya tidak ada rumus yang sama ditulis ulang di dua tempat
-    berbeda dan berisiko tidak sinkron.
-
-    Variabel input:
-        1. ike          : kWh/m²/bulan — dari core.hitung_ike()
-        2. kwh_per_org  : kWh/orang/bulan — dari core.hitung_kwh_per_org()
-
-    Batas IKE standar Depdiknas (kWh/m²/bulan):
-        Tidak ber-AC:
-            Sangat Efisien : IKE < 0.84
-            Efisien        : 0.84 ≤ IKE < 1.67
-            Cukup Efisien  : 1.67 ≤ IKE ≤ 2.50
-            Boros          : 2.50 < IKE ≤ 3.34
-            Sangat Boros   : IKE > 3.34
-
-        Ber-AC:
-            Sangat Efisien : IKE < 7.92
-            Efisien        : 7.92 ≤ IKE < 12.08
-            Cukup Efisien  : 12.08 ≤ IKE ≤ 14.58
-            Boros          : 14.58 < IKE ≤ 23.75
-            Sangat Boros   : IKE > 23.75
-
-    Parameters:
-        ike         : IKE (kWh/m²/bulan), sudah dihitung di Lapis 1
-        kwh_per_org : konsumsi per penghuni (kWh/orang/bulan),
-                      sudah dihitung di Lapis 1
-        ada_ac      : True jika ada peralatan kategori "Pendingin"
-
-    Returns:
-        str : salah satu dari
-              'Sangat Efisien' | 'Efisien' | 'Cukup Efisien' |
-              'Boros' | 'Sangat Boros'
-    """
-    kwh_per_org = float(kwh_per_org)
-
-    # ── Himpunan fuzzy input: IKE ─────────────────────────────────────────────
-    # Dibedakan antara rumah ber-AC dan tidak ber-AC sesuai standar Depdiknas.
-    # Tiga himpunan: rendah (hemat) · sedang · tinggi (boros)
-    if not ada_ac:
-        # Batas tidak ber-AC: SE<0.84 | E 0.84–1.67 | CE 1.67–2.50
-        #                     B 2.50–3.34 | SB >3.34
-        ike_sets = {
-            "rendah": lambda x: _trapmf(x,  0.00, 0.00, 0.84, 1.67),
-            "sedang": lambda x: _trimf( x,  0.84, 1.67, 3.34),
-            "tinggi": lambda x: _trapmf(x,  2.50, 3.34, 15.0, 15.0),
-        }
-    else:
-        # Batas ber-AC: SE<7.92 | E 7.92–12.08 | CE 12.08–14.58
-        #               B 14.58–23.75 | SB >23.75
-        ike_sets = {
-            "rendah": lambda x: _trapmf(x,  0.00,  0.00,  7.92, 12.08),
-            "sedang": lambda x: _trimf( x,  7.92, 12.08, 23.75),
-            "tinggi": lambda x: _trapmf(x, 14.58, 23.75, 60.0,  60.0),
-        }
-
-    # ── Himpunan fuzzy input: kWh per penghuni ───────────────────────────────
-    # Tiga himpunan: rendah · sedang · tinggi
-    # Satuan: kWh/orang/bulan
-    # Range berbeda antara ber-AC dan tidak ber-AC karena konsumsi total
-    # rumah ber-AC secara wajar jauh lebih tinggi per penghuninya.
-    if not ada_ac:
-        kwh_org_sets = {
-            "rendah": lambda x: _trapmf(x,   0,   0,  35,  55),
-            "sedang": lambda x: _trimf( x,  40,  75, 110),
-            "tinggi": lambda x: _trapmf(x,  90, 125, 400, 400),
-        }
-    else:
-        # Ber-AC: konsumsi per orang wajar lebih tinggi
-        kwh_org_sets = {
-            "rendah": lambda x: _trapmf(x,   0,   0,  80, 130),
-            "sedang": lambda x: _trimf( x,  100, 200, 350),
-            "tinggi": lambda x: _trapmf(x,  280, 400, 1500, 1500),
-        }
-
-    # ── Himpunan fuzzy output (universe 0–100) ────────────────────────────────
-    # 5 label sesuai kategori IKE standar Depdiknas
-    output_sets = {
-        "sangat_efisien": lambda x: _trapmf(x,  0,  0, 15, 30),
-        "efisien":        lambda x: _trimf( x, 15, 30, 50),
-        "cukup_efisien":  lambda x: _trimf( x, 40, 55, 70),
-        "boros":          lambda x: _trimf( x, 60, 75, 90),
-        "sangat_boros":   lambda x: _trapmf(x, 80, 90, 100, 100),
-    }
-
-    # ── Derajat keanggotaan input ─────────────────────────────────────────────
-    mu_ike = {k: _derajat(f, ike)         for k, f in ike_sets.items()}
-    mu_org = {k: _derajat(f, kwh_per_org) for k, f in kwh_org_sets.items()}
-
-    # ── Evaluasi rules Mamdani (AND = min, OR = max) ──────────────────────────
-    #
-    # IKE adalah variabel primer (standar regulasi).
-    # kWh/penghuni adalah variabel sekunder (konteks sosial).
-    #
-    # Desain rule: IKE yang sudah jelas (rendah/tinggi) langsung menentukan
-    # output tanpa bisa "digeser" oleh kWh/orang. Hanya di zona sedang
-    # kWh/orang berperan menggeser ke atas atau ke bawah.
-    #
-    # Rule base:
-    #   R1:  IF ike=rendah                   → sangat_efisien  (IKE dominan)
-    #   R2:  IF ike=rendah AND kwh_org=sedang → efisien
-    #   R3:  IF ike=sedang AND kwh_org=rendah → efisien
-    #   R4:  IF ike=sedang AND kwh_org=sedang → cukup_efisien
-    #   R5:  IF ike=sedang AND kwh_org=tinggi → boros
-    #   R6:  IF ike=tinggi AND kwh_org=rendah → cukup_efisien
-    #   R7:  IF ike=tinggi AND kwh_org=sedang → boros
-    #   R8:  IF ike=tinggi                   → boros           (IKE dominan)
-    #   R9:  IF ike=tinggi AND kwh_org=tinggi → sangat_boros
-    aktivasi = {
-        "sangat_efisien": max([
-            mu_ike["rendah"],                                       # R1
-        ]),
-        "efisien": max([
-            min(mu_ike["rendah"], mu_org["sedang"]),                # R2
-            min(mu_ike["sedang"], mu_org["rendah"]),                # R3
-        ]),
-        "cukup_efisien": max([
-            min(mu_ike["sedang"], mu_org["sedang"]),                # R4
-            min(mu_ike["tinggi"], mu_org["rendah"]),                # R6
-        ]),
-        "boros": max([
-            min(mu_ike["sedang"], mu_org["tinggi"]),                # R5
-            min(mu_ike["tinggi"], mu_org["sedang"]),                # R7
-            mu_ike["tinggi"],                                       # R8
-        ]),
-        "sangat_boros": max([
-            min(mu_ike["tinggi"], mu_org["tinggi"]),                # R9
-        ]),
-    }
-
-    # ── Defuzzifikasi → nilai crisp ───────────────────────────────────────────
-    nilai_crisp = _defuzzifikasi_centroid(output_sets, aktivasi)
-
-    # ── Pemetaan crisp → label IKE standar ───────────────────────────────────
-    # Threshold disesuaikan dengan posisi centroid tiap himpunan output
-    if nilai_crisp < 22:  return "Sangat Efisien"
-    if nilai_crisp < 42:  return "Efisien"
-    if nilai_crisp < 62:  return "Cukup Efisien"
-    if nilai_crisp < 82:  return "Boros"
-    return "Sangat Boros"
+    ike = float(ike)
+    derajat = {label: _trapmf(ike, *params) for label, params in MF_IKE.items()}
+    return max(derajat, key=derajat.get)

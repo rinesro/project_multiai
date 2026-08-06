@@ -286,6 +286,36 @@ def tes_kombinasi_tidak_konsisten_ditolak():
     assert r.status_code == 422, f"Harusnya ditolak (422), dapat {r.status_code}"
 
 
+def tes_profil_ike_nilai_ekstrem():
+    """
+    Regresi khusus untuk bug plateau tertutup yang pernah ditemukan:
+    versi awal _trapmf() memberi keanggotaan 0 (bukan 1) untuk IKE
+    yang jauh melebihi batas atas kelas terakhir (Sangat Boros).
+    """
+    from action_analist.ike_profiler import profil_ike
+    assert profil_ike(0.0) == "Sangat Efisien"
+    assert profil_ike(1000.0) == "Sangat Boros", (
+        "IKE ekstrem harus tetap 'Sangat Boros', bukan 'tidak masuk kelas manapun'"
+    )
+
+
+def tes_optimizer_aktif_untuk_ike_tinggi():
+    r = _client.post("/api/analisis", json={
+        "daya_va": 2200, "is_prabayar": False, "luas_rumah": 20, "penghuni": 2,
+        "tagihan_asli": 800000,
+        "daftar_alat": [
+            {"nama": "AC 1", "kategori": "Pendingin", "tegangan": 220,
+             "arus": 4.5, "jam": 12, "jumlah": 1},
+            {"nama": "AC 2", "kategori": "Pendingin", "tegangan": 220,
+             "arus": 4.5, "jam": 12, "jumlah": 1},
+        ],
+        "intent_user": ["Biaya"],
+    })
+    assert r.status_code == 200, f"status {r.status_code}: {r.text[:200]}"
+    d = r.json()
+    assert d["hasil_optimasi"]["aktif"] is True, "Optimizer harusnya aktif untuk IKE tinggi"
+
+
 cek("GET /api/health", tes_health)
 cek("GET /api/referensi", tes_referensi)
 cek("POST /api/analisis — pascabayar normal", tes_pascabayar_normal)
@@ -297,6 +327,8 @@ cek("Status 'data_belum_cukup' (H+0)", tes_status_data_belum_cukup)
 cek("Status 'data_tidak_konsisten' (saldo tidak masuk akal)", tes_status_data_tidak_konsisten)
 cek("Validasi jam > 24 ditolak (422)", tes_validasi_24_jam)
 cek("Kombinasi is_prabayar/token_context tidak konsisten ditolak (422)", tes_kombinasi_tidak_konsisten_ditolak)
+cek("profil_ike() nilai ekstrem tetap 'Sangat Boros' (regresi bug plateau)", tes_profil_ike_nilai_ekstrem)
+cek("Optimizer brute force aktif untuk IKE tinggi", tes_optimizer_aktif_untuk_ike_tinggi)
 
 _client.__exit__(None, None, None)
 

@@ -18,25 +18,25 @@ Strategi pengurangan:
     - Batas minimum    : 0.5 jam (tidak boleh nol)
     - Maks pengurangan : 50% dari jam asal per peralatan
 
-Referensi standar IKE Depdiknas (kWh/m²/bulan):
-    Tidak ber-AC:
-        Sangat Efisien : IKE < 0.84
-        Efisien        : 0.84 ≤ IKE < 1.67
-        Cukup Efisien  : 1.67 ≤ IKE ≤ 2.50
-        Boros          : 2.50 < IKE ≤ 3.34   ← optimizer aktif
-        Sangat Boros   : IKE > 3.34           ← optimizer aktif
-    Ber-AC:
-        Sangat Efisien : IKE < 7.92
-        Efisien        : 7.92 ≤ IKE < 12.08
-        Cukup Efisien  : 12.08 ≤ IKE ≤ 14.58
-        Boros          : 14.58 < IKE ≤ 23.75 ← optimizer aktif
-        Sangat Boros   : IKE > 23.75          ← optimizer aktif
+PEROMBAKAN BESAR — ambang IKE TIDAK LAGI disalin ulang di sini:
+    Modul ini SEBELUMNYA punya salinan sendiri ambang IKE Depdiknas
+    (BATAS_IKE, dibedakan ber-AC/tidak) yang independen dari
+    action_analist/ike_profiler.py — risiko dua sumber kebenaran
+    tidak sinkron kalau salah satu diubah tanpa yang lain (persis
+    yang terjadi: ike_profiler.py sudah diperbarui pakai kalibrasi
+    5-lapis baru, tapi file ini masih Depdiknas lama sampai perombakan
+    ini). Sekarang ambang batas & label zona diambil LANGSUNG dari
+    action_analist/ike_profiler.py (MF_IKE, profil_ike()) — satu-
+    satunya sumber kebenaran untuk klasifikasi IKE di seluruh sistem.
+    Parameter ada_ac juga DIHAPUS TOTAL dari modul ini karena sistem
+    baru tidak lagi membedakan rumah ber-AC/tidak (skala tunggal).
 
 Referensi regulasi:
-    [1] Tarif PLN April–Juni 2026 — PT PLN (Persero)
+    [1] Tarif PLN — PT PLN (Persero)
     [2] Faktor Emisi GRK Grid Jamali OM 0,80 kgCO₂/kWh — ESDM 2019
     [3] PBJT 2,4% — Perda DKI Jakarta No.1/2024
-    [5] Standar IKE — Pedoman Konservasi Energi Depdiknas RI
+    [5] Ambang IKE — lihat action_analist/ike_profiler.py untuk
+        metodologi kalibrasi 5-lapis lengkap & sitasi.
 """
 
 from copy import deepcopy
@@ -49,22 +49,15 @@ if str(_BASE) not in _sys.path:
 from core.kalkulasi import hitung_tagihan as _core_hitung_tagihan
 from core.kalkulasi import hitung_emisi as _core_hitung_emisi
 from core.kalkulasi import FAKTOR_EMISI_JAMALI_OM
+from action_analist.ike_profiler import profil_ike, MF_IKE
 
-# ── Konstanta IKE standar Depdiknas (kWh/m²/bulan) ───────────────────────────
-# Optimizer SKIP jika IKE ≤ batas Cukup Efisien (sudah dalam zona aman)
-# Optimizer AKTIF jika IKE > batas Cukup Efisien (zona Boros/Sangat Boros)
-BATAS_IKE = {
-    "tidak_ac": {
-        "sangat_efisien": 0.84,
-        "efisien"       : 1.67,
-        "cukup_efisien" : 2.50,
-    },
-    "ac": {
-        "sangat_efisien": 7.92,
-        "efisien"       : 12.08,
-        "cukup_efisien" : 14.58,
-    },
-}
+# Ambang IKE dipakai optimizer (target ceiling akhir zona hasil optimasi)
+# -- diturunkan LANGSUNG dari MF_IKE yang sama dipakai ike_profiler.py,
+# BUKAN disalin ulang. "c" (elemen indeks ke-2 tiap tuple trapesium)
+# adalah ujung plateau zona itu -- titik di mana keanggotaan zona
+# tersebut masih penuh (1.0) sebelum mulai turun ke zona berikutnya.
+BATAS_EFISIEN       = MF_IKE["Efisien"][2]        # ~2.597 kWh/m²/bulan
+BATAS_CUKUP_EFISIEN = MF_IKE["Cukup Efisien"][2]  # ~4.396 kWh/m²/bulan
 
 STEP_JAM        = 0.5    # step pengurangan jam
 MAKS_KURANG_PCT = 0.50   # maksimum pengurangan 50% dari jam asal
@@ -72,44 +65,6 @@ MIN_JAM         = 0.5    # minimum jam operasi per peralatan
 
 
 # ── Helper functions ──────────────────────────────────────────────────────────
-
-def _get_batas(ada_ac: bool, zona: str) -> float:
-    """Ambil batas IKE berdasarkan kondisi AC dan nama zona."""
-    kunci = "ac" if ada_ac else "tidak_ac"
-    return BATAS_IKE[kunci][zona]
-
-
-def _label_zona(ike: float, ada_ac: bool) -> str:
-    """
-    Tentukan label zona IKE dari nilai numerik.
-
-    Batas zona ber-AC (kWh/m²/bulan) — standar Depdiknas:
-        Sangat Efisien : IKE < 7.92
-        Efisien        : 7.92 ≤ IKE < 12.08
-        Cukup Efisien  : 12.08 ≤ IKE ≤ 14.58
-        Boros          : 14.58 < IKE ≤ 23.75
-        Sangat Boros   : IKE > 23.75
-
-    Batas zona tidak ber-AC (kWh/m²/bulan):
-        Sangat Efisien : IKE < 0.84
-        Efisien        : 0.84 ≤ IKE < 1.67
-        Cukup Efisien  : 1.67 ≤ IKE ≤ 2.50
-        Boros          : 2.50 < IKE ≤ 3.34
-        Sangat Boros   : IKE > 3.34
-    """
-    if ada_ac:
-        if ike < 7.92:   return "Sangat Efisien"
-        if ike < 12.08:  return "Efisien"
-        if ike <= 14.58: return "Cukup Efisien"
-        if ike <= 23.75: return "Boros"
-        return "Sangat Boros"
-    else:
-        if ike < 0.84:  return "Sangat Efisien"
-        if ike < 1.67:  return "Efisien"
-        if ike <= 2.50: return "Cukup Efisien"
-        if ike <= 3.34: return "Boros"
-        return "Sangat Boros"
-
 
 def _total_kwh(alat_tetap: list, alat_fleksibel: list) -> float:
     """
@@ -145,8 +100,7 @@ def _hitung_emisi(kwh: float) -> float:
 # ── Greedy optimizer ──────────────────────────────────────────────────────────
 
 def _greedy(alat_tetap: list, alat_flex: list,
-            luas_m2: float, ada_ac: bool,
-            zona_target: str) -> tuple:
+            luas_m2: float, batas_ike: float) -> tuple:
     """
     Greedy reduction: kurangi jam peralatan satu langkah per iterasi,
     mulai dari yang kWh-nya terbesar, sampai IKE target tercapai
@@ -155,7 +109,6 @@ def _greedy(alat_tetap: list, alat_flex: list,
     Returns:
         (berhasil: bool, state_akhir: list)
     """
-    batas = _get_batas(ada_ac, zona_target)
     state = deepcopy(alat_flex)
 
     # Urutkan dari kWh terbesar — dampak terbesar dulu
@@ -164,7 +117,7 @@ def _greedy(alat_tetap: list, alat_flex: list,
     while True:
         ike_kini = _total_kwh(alat_tetap, state) / max(1.0, luas_m2)
 
-        if ike_kini <= batas:
+        if ike_kini <= batas_ike:
             return True, state
 
         # Cek apakah masih ada yang bisa dikurangi
@@ -189,7 +142,6 @@ def _greedy(alat_tetap: list, alat_flex: list,
 
 def optimasi(ringkasan_dsm : dict,
              luas_m2       : float,
-             ada_ac        : bool,
              tarif_kwh     : float,
              pbjt          : float,
              is_prabayar   : bool,
@@ -197,12 +149,12 @@ def optimasi(ringkasan_dsm : dict,
              tagihan_awal  : float,
              emisi_awal    : float) -> dict:
     """
-    Brute force optimizer berbasis target IKE Depdiknas.
+    Brute force optimizer berbasis target IKE hasil kalibrasi 5-lapis
+    (lihat action_analist/ike_profiler.py untuk metodologi lengkap).
 
     Parameters:
         ringkasan_dsm  : output DSMClassifier.ringkasan_dsm()
         luas_m2        : luas bangunan user (m²)
-        ada_ac         : True jika ada peralatan kategori Pendingin
         tarif_kwh      : tarif PLN sesuai golongan (Rp/kWh)
         pbjt           : tarif PBJT (0.024 untuk rumah tangga Jakarta)
         is_prabayar    : True jika prabayar — menentukan apakah Biaya
@@ -234,7 +186,7 @@ def optimasi(ringkasan_dsm : dict,
         pesan           : pesan ringkas status optimasi
     """
     ike_awal  = round(kwh_awal / max(1.0, luas_m2), 4)
-    zona_awal = _label_zona(ike_awal, ada_ac)
+    zona_awal = profil_ike(ike_awal)
 
     # ── Cek apakah optimizer perlu berjalan ───────────────────────────────────
     # SKIP : IKE sudah < batas Efisien (zona Sangat Efisien / Efisien)
@@ -242,10 +194,7 @@ def optimasi(ringkasan_dsm : dict,
     #   → Cukup Efisien : coba turunkan ke Efisien
     #   → Boros         : coba turunkan ke Efisien, fallback Cukup Efisien
     #   → Sangat Boros  : coba turunkan ke Efisien, fallback Cukup Efisien
-    batas_cukup   = _get_batas(ada_ac, "cukup_efisien")
-    batas_efisien = _get_batas(ada_ac, "efisien")
-
-    if ike_awal < batas_efisien:
+    if ike_awal < BATAS_EFISIEN:
         return {
             "aktif"             : False,
             "status"            : "sudah_efisien",
@@ -253,7 +202,7 @@ def optimasi(ringkasan_dsm : dict,
             "zona_akhir"        : zona_awal,
             "ike_awal"          : ike_awal,
             "ike_akhir"         : ike_awal,
-            "target_ike"        : batas_cukup,
+            "target_ike"        : BATAS_CUKUP_EFISIEN,
             "total_kwh_akhir"   : kwh_awal,
             "tagihan_akhir"     : int(tagihan_awal),
             "emisi_akhir"       : emisi_awal,
@@ -281,7 +230,7 @@ def optimasi(ringkasan_dsm : dict,
             "zona_akhir"        : zona_awal,
             "ike_awal"          : ike_awal,
             "ike_akhir"         : ike_awal,
-            "target_ike"        : _get_batas(ada_ac, "cukup_efisien"),
+            "target_ike"        : BATAS_CUKUP_EFISIEN,
             "total_kwh_akhir"   : kwh_awal,
             "tagihan_akhir"     : int(tagihan_awal),
             "emisi_akhir"       : emisi_awal,
@@ -310,24 +259,20 @@ def optimasi(ringkasan_dsm : dict,
         alat_flex.append(item)
 
     # ── Iterasi 1: target Efisien ─────────────────────────────────────────────
-    berhasil, state = _greedy(
-        alat_tetap, alat_flex, luas_m2, ada_ac, "efisien"
-    )
-    status     = "efisien"
-    target_zona= "efisien"
+    berhasil, state = _greedy(alat_tetap, alat_flex, luas_m2, BATAS_EFISIEN)
+    status      = "efisien"
+    target_ike  = BATAS_EFISIEN
 
     # ── Iterasi 2: fallback ke Cukup Efisien ──────────────────────────────────
     if not berhasil:
-        berhasil, state = _greedy(
-            alat_tetap, alat_flex, luas_m2, ada_ac, "cukup_efisien"
-        )
+        berhasil, state = _greedy(alat_tetap, alat_flex, luas_m2, BATAS_CUKUP_EFISIEN)
         status     = "cukup_efisien" if berhasil else "tidak_tercapai"
-        target_zona= "cukup_efisien"
+        target_ike = BATAS_CUKUP_EFISIEN
 
     # ── Hitung hasil akhir ────────────────────────────────────────────────────
     kwh_akhir     = _total_kwh(alat_tetap, state)
     ike_akhir     = round(kwh_akhir / max(1.0, luas_m2), 4)
-    zona_akhir    = _label_zona(ike_akhir, ada_ac)
+    zona_akhir    = profil_ike(ike_akhir)
     tagihan_akhir = _hitung_tagihan(kwh_akhir, tarif_kwh, pbjt, is_prabayar)
     emisi_akhir   = _hitung_emisi(kwh_akhir)
 
@@ -368,8 +313,7 @@ def optimasi(ringkasan_dsm : dict,
     pesan_map = {
         "efisien"       : (
             f"Berhasil! Konsumsi turun dari zona {zona_awal} "
-            f"ke zona Efisien (IKE ≤ {_get_batas(ada_ac, 'efisien')} "
-            "kWh/m²/bulan)."
+            f"ke zona Efisien (IKE ≤ {BATAS_EFISIEN} kWh/m²/bulan)."
         ),
         "cukup_efisien" : (
             f"Target Efisien tidak tercapai dari zona {zona_awal}. "
@@ -389,7 +333,7 @@ def optimasi(ringkasan_dsm : dict,
         "zona_akhir"        : zona_akhir,
         "ike_awal"          : ike_awal,
         "ike_akhir"         : ike_akhir,
-        "target_ike"        : _get_batas(ada_ac, target_zona),
+        "target_ike"        : target_ike,
         "total_kwh_akhir"   : kwh_akhir,
         "tagihan_akhir"     : int(tagihan_akhir),
         "emisi_akhir"       : emisi_akhir,
