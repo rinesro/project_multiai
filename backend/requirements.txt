@@ -11,11 +11,7 @@ python-dotenv>=1.0.0
 pandas>=2.2.0
 numpy>=2.0.0
 
-# Machine learning
-# Versi di-pin PERSIS sesuai lingkungan pelatihan model (dsm_metadata.json,
-# lingkungan_pelatihan) -- joblib.dump() ikut nge-pickle kelas dasar
-# scikit-learn LGBMClassifier, jadi versi yang beda saat load berisiko
-# error (pernah terjadi: _ARRAY_API not found).
+# model ML
 scikit-learn==1.6.1
 lightgbm==4.6.0
 joblib==1.5.3

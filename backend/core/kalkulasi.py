@@ -93,8 +93,13 @@ TARIF_PER_GOLONGAN = {
 FAKTOR_EMISI_JAMALI_OM  = 0.80    # kgCO₂/kWh — Grid Jamali OM [2]
 PBJT_RUMAH_TANGGA       = 0.024   # 2,4% [3]
 
-# Golongan daya standar PLN (dipakai UI & generator data)
-GOLONGAN_DAYA = [450, 900, 1300, 2200, 3500, 4400, 5500, 6600, 7700, 10600, 13200]
+# Golongan daya standar PLN (dipakai UI & generator data).
+# Dipangkas sampai 6.600 VA -- batas tertinggi yang eksplisit disebut
+# sumber [1] untuk konteks rumah tangga ("6.600 VA ke atas"). VA lebih
+# tinggi (7.700/10.600/13.200) SENGAJA tidak dimasukkan: jarang dipakai
+# rumah tangga murni (lebih umum bisnis/gedung campuran), di luar
+# cakupan "rumah tangga DKI Jakarta" yang jadi fokus penelitian ini.
+GOLONGAN_DAYA = [450, 900, 1300, 2200, 3500, 4400, 5500, 6600]
 
 # 8 kategori peralatan standar — sebelumnya diduplikasi terpisah di
 # app.py (KATEGORI_OPTIONS) dan models/dsm_classifier.py (KATEGORI_VALID).

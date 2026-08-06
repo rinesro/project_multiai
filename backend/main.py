@@ -1,15 +1,3 @@
-"""
-backend/main.py
-=================
-FastAPI backend untuk EnergiCerdas AI — dipakai frontend Next.js
-(Vercel). Deploy target: Hugging Face Spaces (Docker).
-
-Orkestrasi Lapis 1 (kalkulasi & anomali) → Lapis 2 (fuzzy IKE + DSM
-classifier) → Lapis 3 (brute force optimizer) → narasi Gemini,
-memakai modul yang SAMA dengan app.py Streamlit (core/, services/,
-models/, optimizer/, action_analist/) — tidak ada logika yang ditulis ulang.
-"""
-
 import os
 import sys
 import ctypes
@@ -24,42 +12,10 @@ from dotenv import load_dotenv
 
 warnings.filterwarnings("ignore")
 
-# core/, action_analist/, services/, models/, optimizer/, data/ sekarang ada DI
-# DALAM backend/ (bukan sepupu di repo root) — supaya Vercel Services
-# bisa bundling semuanya sekaligus (root: "backend/" cuma melihat isi
-# folder ini sendiri, tidak menjangkau folder di luar). Makanya yang
-# ditambahkan ke sys.path adalah folder backend/ itu sendiri.
 sys.path.insert(0, str(Path(__file__).parent))
 
 
 def _preload_vendored_libgomp():
-    """
-    LightGBM (dipakai models/dsm_classifier.py) butuh libgomp.so.1 —
-    library SISTEM (bukan Python package). Di Docker (HF Spaces/Cloud
-    Run) ini beres lewat `apt-get install libgomp1` di Dockerfile. Tapi
-    Vercel Function itu serverless — kita TIDAK bisa apt-install apa
-    pun, dan environment defaultnya tidak menyediakan libgomp sama
-    sekali. Ini bug yang belum diperbaiki dari sumbernya:
-    https://github.com/microsoft/LightGBM/issues/7141 (dibuka 30 Jan 2026).
-
-    Solusi: scikit-learn (sudah ada di requirements.txt) diam-diam
-    membawa salinan libgomp.so.1 sendiri (dibutuhkan algoritmanya
-    sendiri) — tapi dengan nama file DAN SONAME internal yang di-mangle
-    (mis. "libgomp-e985bcbb.so.1.0.0"), jadi tidak otomatis dikenali
-    saat lightgbm mencari persis "libgomp.so.1".
-
-    backend/vendor/libgomp.so.1 adalah SALINAN dari file scikit-learn
-    itu, yang SONAME internalnya sudah di-patch manual (pakai
-    `patchelf --set-soname libgomp.so.1`) supaya dikenali dengan nama
-    yang benar. Fungsi ini memuatnya duluan (RTLD_GLOBAL) SEBELUM
-    lightgbm diimpor, supaya saat lightgbm mencari "libgomp.so.1",
-    linker sudah menemukannya di memori proses tanpa perlu mencari ke
-    sistem file sama sekali.
-
-    Kalau file vendor ini tidak ada, atau linux system sudah punya
-    libgomp sendiri (Docker/lokal), fungsi ini gagal diam-diam — tidak
-    masalah, artinya lightgbm akan cari libgomp dengan cara normal.
-    """
     try:
         vendor_path = Path(__file__).parent / "vendor" / "libgomp.so.1"
         if vendor_path.exists():
@@ -70,9 +26,6 @@ def _preload_vendored_libgomp():
 
 _preload_vendored_libgomp()
 
-# Muat backend/.env kalau ada (development lokal). Di Hugging Face Spaces,
-# secrets sudah otomatis jadi environment variable — load_dotenv() tidak
-# menimpa env var yang sudah ada, jadi aman dipakai di kedua konteks.
 load_dotenv(Path(__file__).parent / ".env")
 
 from core.kalkulasi import (
@@ -91,16 +44,13 @@ from schemas import (
 
 logger = logging.getLogger("uvicorn.error")
 
-# ── Konfigurasi dari environment (HF Spaces secrets) ──────────────────────────
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-# Domain Vercel diisi di env var ALLOWED_ORIGINS, dipisah koma.
-# Contoh: "https://energicerdas.vercel.app,http://localhost:3000"
+
 ALLOWED_ORIGINS = [
     o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "*").split(",") if o.strip()
 ]
 
-# ── Model DSM dimuat SEKALI saat startup (bukan per-request) ──────────────────
-# Setara dengan @st.cache_resource di app.py Streamlit.
+
 _dsm_clf: DSMClassifier | None = None
 
 
@@ -110,9 +60,6 @@ async def lifespan(app: FastAPI):
     logger.info("Memuat model DSM Classifier...")
     _dsm_clf = DSMClassifier()
     if not _dsm_clf.siap:
-        # Sengaja tidak menghentikan startup server — endpoint /analisis
-        # akan menolak request dengan 503 kalau model belum siap, supaya
-        # /api/referensi (yang tidak butuh model) tetap bisa diakses.
         logger.error("DSM Classifier GAGAL dimuat: %s", _dsm_clf.pesan_error)
     else:
         logger.info("DSM Classifier siap.")
@@ -137,21 +84,11 @@ app.add_middleware(
 
 @app.get("/api/referensi", response_model=ReferensiResponse)
 def get_referensi():
-    """
-    Data statis untuk dropdown/preview di frontend — golongan daya,
-    tarif per golongan, kategori alat, fokus optimasi. Diambil dari
-    core/kalkulasi.py supaya frontend tidak hardcode nilai yang bisa
-    berubah kalau regulasi tarif PLN di-update.
-    """
     return ReferensiResponse(
         golongan_daya=GOLONGAN_DAYA,
-        # >=1.300 VA: satu tarif per golongan, tidak ada distingsi subsidi.
         tarif_per_golongan={
             str(v): get_tarif(v) for v in GOLONGAN_DAYA if v >= 1300
         },
-        # 450 & 900 VA: dua opsi (subsidi/non-subsidi) untuk 900VA, 450VA
-        # cuma satu tarif tapi tetap dibungkus struktur yang sama supaya
-        # frontend tidak perlu kasus khusus per VA.
         tarif_daya_rendah={
             "450": {"subsidi": TARIF_DAYA_RENDAH[450], "non_subsidi": TARIF_DAYA_RENDAH[450]},
             "900": dict(TARIF_DAYA_RENDAH[900]),
@@ -164,8 +101,6 @@ def get_referensi():
 
 @app.get("/api/health")
 def health_check():
-    """Endpoint sederhana untuk cek Space hidup & model siap — dipakai
-    monitoring/uptime check, bukan dipanggil frontend saat operasi normal."""
     return {
         "status": "ok",
         "dsm_model_siap": _dsm_clf.siap if _dsm_clf else False,
@@ -179,17 +114,6 @@ def health_check():
     responses={400: {"model": ErrorResponse}, 503: {"model": ErrorResponse}},
 )
 def post_analisis(req: AnalisisRequest):
-    """
-    Endpoint utama — setara tombol "🚀 Mulai Analisis" di app.py
-    Streamlit. Menjalankan Lapis 1 (kalkulasi + anomali) → Lapis 2
-    (fuzzy IKE + DSM classifier) → Lapis 3 (brute force optimizer) →
-    narasi Gemini, lalu mengembalikan semuanya sebagai satu response.
-
-    Validasi konsistensi is_prabayar vs tagihan_asli/token_context
-    SUDAH dilakukan di schemas.py (Pydantic model_validator) sebelum
-    endpoint ini dipanggil — request yang tidak konsisten otomatis
-    ditolak FastAPI dengan 422 sebelum sampai ke sini.
-    """
     if _dsm_clf is None or not _dsm_clf.siap:
         raise HTTPException(
             status_code=503,
@@ -201,7 +125,6 @@ def post_analisis(req: AnalisisRequest):
             detail="GEMINI_API_KEY belum dikonfigurasi di server (HF Spaces secrets).",
         )
 
-    # ── Lapis 1 ────────────────────────────────────────────────────────────
     agent = DataIngestionValidatorAgent(req.daya_va, req.is_prabayar, req.is_subsidi)
 
     daftar_alat = [a.model_dump() for a in req.daftar_alat]
@@ -216,20 +139,13 @@ def post_analisis(req: AnalisisRequest):
             token_context=token_context,
         )
     except ValueError as e:
-        # ValueError dari services/ingestion.py — seharusnya sudah ditangkap
-        # validator di schemas.py, ini jaring pengaman kedua.
         raise HTTPException(status_code=400, detail=str(e))
 
-    # ── Lapis 2 ────────────────────────────────────────────────────────────
-    # ada_ac (dulu dipakai profil_ike() & optimasi() untuk skema ber-AC/
-    # tidak) sudah dihapus total dari sistem sejak perombakan kalibrasi
-    # 5-lapis — tidak dihitung lagi karena tidak dipakai di mana pun lagi.
     label_ike = profil_ike(payload['ike'])
 
     hasil_dsm = _dsm_clf.prediksi_batch(payload['alat_valid'])
     ringkasan_dsm = _dsm_clf.ringkasan_dsm(hasil_dsm)
 
-    # ── Lapis 3 ────────────────────────────────────────────────────────────
     hasil_opt = optimasi(
         ringkasan_dsm=ringkasan_dsm,
         luas_m2=float(req.luas_rumah),
@@ -241,7 +157,6 @@ def post_analisis(req: AnalisisRequest):
         emisi_awal=payload['emisi_sebelum']['emisi_kg_bulan'],
     )
 
-    # ── Narasi Gemini ─────────────────────────────────────────────────────
     try:
         narasi = generate_gemini_narasi(
             api_key=GEMINI_API_KEY,
@@ -252,9 +167,6 @@ def post_analisis(req: AnalisisRequest):
             intent_user=req.intent_user,
         )
     except Exception as e:
-        # Gemini API bisa gagal (rate limit, network) — jangan gagalkan
-        # SELURUH analisis cuma karena narasi gagal dibuat. Dashboard
-        # angka tetap valid & berguna tanpa narasi.
         logger.warning("Gagal membuat narasi Gemini: %s", e)
         narasi = (
             "Narasi rekomendasi tidak dapat dibuat saat ini. "

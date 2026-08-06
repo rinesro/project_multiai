@@ -202,11 +202,22 @@ export function HasilAnalisis({ hasil }: { hasil: AnalisisResponse }) {
         <p className="mt-4 text-xs leading-relaxed text-cream-dim/70">
           ⚠️{" "}
           {hasil.is_prabayar
-            ? "Estimasi nilai konsumsi ini bersifat prediktif — dihitung dari tarif resmi PLN dan spesifikasi/durasi pakai peralatan yang Anda masukkan, bukan dari pembacaan meteran langsung. Nominal aktual bisa berbeda dari saldo token sesungguhnya."
-            : "Estimasi tagihan ini bersifat prediktif — dihitung dari tarif resmi PLN dan spesifikasi/durasi pakai peralatan yang Anda masukkan, bukan dari pembacaan meteran langsung. Nominal aktual di rekening/struk bisa berbeda."}
+            ? "Estimasi nilai konsumsi ini bersifat prediktif — dihitung dari tarif resmi PLN dan spesifikasi/durasi pakai peralatan yang Anda masukkan, bukan dari pembacaan meteran langsung. Nominal aktual bisa berbeda dari saldo token sesungguhnya, dan estimasi ini belum memperhitungkan biaya admin pembelian token (besarannya tergantung channel pembayaran yang Anda gunakan)."
+            : "Estimasi tagihan ini bersifat prediktif — dihitung dari tarif resmi PLN dan spesifikasi/durasi pakai peralatan yang Anda masukkan, bukan dari pembacaan meteran langsung. Nominal aktual di rekening/struk bisa berbeda, dan estimasi ini belum memperhitungkan biaya admin (besarannya tergantung channel pembayaran yang Anda gunakan)."}
         </p>
       </Expandable>
 
+      <Expandable title="🔧 Klasifikasi Peralatan (detail teknis, opsional)">
+        <ul className="space-y-1.5 text-sm">
+          {hasil.hasil_dsm.map((a, i) => (
+            <li key={i} className="flex items-center gap-2">
+              <span className={a.label_dsm === "Fleksibel" ? "text-teal" : "text-red"}>●</span>
+              <span className="text-cream">{a.nama}</span>
+              <span className="text-cream-dim">— {a.label_dsm}</span>
+            </li>
+          ))}
+        </ul>
+      </Expandable>
         </>
       )}
     </div>

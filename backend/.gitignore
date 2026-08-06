@@ -1,8 +1,4 @@
-# ============================================================
-# .env — JANGAN PERNAH COMMIT FILE INI. Berisi API key/secret asli.
-# Kejadian minggu ini (Gemini API key ke-leak) persis karena file
-# ini sempat tidak terlindungi .gitignore sebelum di-push ke GitHub.
-# ============================================================
+
 backend/.env
 frontend/.env.local
 .env
