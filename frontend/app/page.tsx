@@ -150,7 +150,7 @@ export default function Home() {
 
         {hasil && (
           <div className="pt-4">
-            <HasilAnalisis hasil={hasil} />
+            <HasilAnalisis hasil={hasil} intentUser={intentUser} />
           </div>
         )}
       </div>

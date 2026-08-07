@@ -147,7 +147,7 @@ with st.sidebar:
     st.divider()
     st.caption(
         "Model DSM: LightGBM\n"
-        "Profil IKE: Fuzzy Mamdani\n"
+        "Profil IKE: Klasifikasi Fuzzy (kalibrasi 5-lapis)\n"
         "Optimizer: Brute Force IKE\n"
         "Gen AI: Gemini 2.5 Flash"
     )
@@ -534,15 +534,29 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
         st.caption("Detail teknis di bawah ini bersifat opsional — pendukung angka di atas.")
 
         # ── Metrik utama ──────────────────────────────────────────────────────────
+        # Array kosong (user tidak pilih fokus spesifik) dianggap "tampilkan
+        # keduanya" — konsisten dengan instruksi_fokus di backend (services/
+        # narasi.py) dan perilaku yang sama di frontend Next.js.
+        tampil_biaya      = not intent_user or 'Biaya' in intent_user
+        tampil_lingkungan = not intent_user or 'Lingkungan' in intent_user
+
         label_biaya = (
             "Estimasi Nilai Konsumsi" if payload['is_prabayar'] else "Estimasi Tagihan"
         )
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric(label_biaya,          f"Rp {payload['estimasi_rp']:,.0f}")
-        m2.metric("Tingkat Efisiensi", label_ike)
-        m3.metric("Total Konsumsi",    f"{payload['total_kwh']} kWh/bln")
-        m4.metric("Emisi CO₂",
-                  f"{payload['emisi_sebelum']['emisi_kg_bulan']} kg/bln")
+        kolom_metrik = [c for c in [tampil_biaya, True, True, tampil_lingkungan] if c]
+        metrik_cols = st.columns(len(kolom_metrik))
+        idx = 0
+        if tampil_biaya:
+            metrik_cols[idx].metric(label_biaya, f"Rp {payload['estimasi_rp']:,.0f}")
+            idx += 1
+        metrik_cols[idx].metric("Tingkat Efisiensi", label_ike)
+        idx += 1
+        metrik_cols[idx].metric("Total Konsumsi", f"{payload['total_kwh']} kWh/bln")
+        idx += 1
+        if tampil_lingkungan:
+            metrik_cols[idx].metric(
+                "Emisi CO₂", f"{payload['emisi_sebelum']['emisi_kg_bulan']} kg/bln"
+            )
 
         # ── Hasil optimasi (jika aktif) — angka ringkasan saja, daftar per-alat
         # sudah ditampilkan di bagian rekomendasi atas ────────────────────────────
@@ -560,28 +574,35 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
                 f"Efisiensi naik dari skor {hasil_opt['ike_awal']} ke {hasil_opt['ike_akhir']}"
             )
 
-            o1, o2, o3 = st.columns(3)
-            if payload['is_prabayar']:
-                o1.metric(
-                    "Token Dihemat/Bulan",
-                    f"{hasil_opt['hemat_kwh']} kWh",
-                    f"≈ Rp {hasil_opt['hemat_rp']:,}"
-                )
-            else:
-                o1.metric(
-                    "Hemat Biaya/Bulan",
-                    f"Rp {hasil_opt['hemat_rp']:,}",
-                    f"{hasil_opt['persen_hemat_rp']}%"
-                )
-            o2.metric(
-                "Kurang Emisi/Bulan",
-                f"{hasil_opt['hemat_emisi_kg']} kgCO₂",
-                f"-{hasil_opt['persen_hemat_emisi']}%"
-            )
-            o3.metric(
-                "Emisi Setelah Optimasi",
-                f"{hasil_opt['emisi_akhir']} kgCO₂/bln"
-            )
+            kolom_opt = [c for c in [tampil_biaya, tampil_lingkungan, tampil_lingkungan] if c]
+            if kolom_opt:
+                opt_cols = st.columns(len(kolom_opt))
+                idx = 0
+                if tampil_biaya:
+                    if payload['is_prabayar']:
+                        opt_cols[idx].metric(
+                            "Token Dihemat/Bulan",
+                            f"{hasil_opt['hemat_kwh']} kWh",
+                            f"≈ Rp {hasil_opt['hemat_rp']:,}"
+                        )
+                    else:
+                        opt_cols[idx].metric(
+                            "Hemat Biaya/Bulan",
+                            f"Rp {hasil_opt['hemat_rp']:,}",
+                            f"{hasil_opt['persen_hemat_rp']}%"
+                        )
+                    idx += 1
+                if tampil_lingkungan:
+                    opt_cols[idx].metric(
+                        "Kurang Emisi/Bulan",
+                        f"{hasil_opt['hemat_emisi_kg']} kgCO₂",
+                        f"-{hasil_opt['persen_hemat_emisi']}%"
+                    )
+                    idx += 1
+                    opt_cols[idx].metric(
+                        "Emisi Setelah Optimasi",
+                        f"{hasil_opt['emisi_akhir']} kgCO₂/bln"
+                    )
 
         # ── DSM Classifier ────────────────────────────────────────────────────────
         with st.expander("🔧 Klasifikasi Peralatan (detail teknis, opsional)"):
@@ -595,8 +616,9 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
                 )
 
         # ── Rincian tagihan ───────────────────────────────────────────────────────
-        with st.expander("📄 Rincian Tagihan"):
-            st.markdown(f"""
+        if tampil_biaya:
+            with st.expander("📄 Rincian Tagihan"):
+                st.markdown(f"""
 | Komponen | Nilai |
 |---|---|
 | Golongan daya | {payload['golongan_daya']} |
@@ -607,28 +629,28 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
 | Biaya Materai | Rp {payload['biaya_materai']:,.0f} |
 | **Estimasi total** | **Rp {payload['estimasi_rp']:,.0f}** |
         """)
-            if payload['is_prabayar']:
-                st.caption(
-                    "⚠️ Estimasi nilai konsumsi ini bersifat prediktif — dihitung "
-                    "dari tarif resmi PLN dan spesifikasi/durasi pakai peralatan "
-                    "yang Anda masukkan, bukan dari pembacaan meteran langsung. "
-                    "Nominal aktual bisa berbeda dari saldo token sesungguhnya, "
-                    "dan estimasi ini belum memperhitungkan biaya admin "
-                    "pembelian token (besarannya tergantung channel pembayaran "
-                    "yang Anda gunakan)."
-                )
-            else:
-                st.caption(
-                    "⚠️ Estimasi tagihan ini bersifat prediktif — dihitung dari "
-                    "tarif resmi PLN dan spesifikasi/durasi pakai peralatan yang "
-                    "Anda masukkan, bukan dari pembacaan meteran langsung. "
-                    "Nominal aktual di rekening/struk bisa berbeda, dan estimasi "
-                    "ini belum memperhitungkan biaya admin (besarannya "
-                    "tergantung channel pembayaran yang Anda gunakan)."
-                )
+                if payload['is_prabayar']:
+                    st.caption(
+                        "⚠️ Estimasi nilai konsumsi ini bersifat prediktif — dihitung "
+                        "dari tarif resmi PLN dan spesifikasi/durasi pakai peralatan "
+                        "yang Anda masukkan, bukan dari pembacaan meteran langsung. "
+                        "Nominal aktual bisa berbeda dari saldo token sesungguhnya, "
+                        "dan estimasi ini belum memperhitungkan biaya admin "
+                        "pembelian token (besarannya tergantung channel pembayaran "
+                        "yang Anda gunakan)."
+                    )
+                else:
+                    st.caption(
+                        "⚠️ Estimasi tagihan ini bersifat prediktif — dihitung dari "
+                        "tarif resmi PLN dan spesifikasi/durasi pakai peralatan yang "
+                        "Anda masukkan, bukan dari pembacaan meteran langsung. "
+                        "Nominal aktual di rekening/struk bisa berbeda, dan estimasi "
+                        "ini belum memperhitungkan biaya admin (besarannya "
+                        "tergantung channel pembayaran yang Anda gunakan)."
+                    )
 
         # ── Rincian token (khusus prabayar) ─────────────────────────────────────
-        if payload['is_prabayar'] and 'token_context' in payload:
+        if tampil_biaya and payload['is_prabayar'] and 'token_context' in payload:
             tc = payload['token_context']
             with st.expander("🔋 Rincian Token"):
                 st.markdown(f"""
@@ -651,19 +673,20 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
                 )
 
         # ── Rincian emisi ─────────────────────────────────────────────────────────
-        with st.expander("🌿 Rincian Emisi CO₂"):
-            e = payload['emisi_sebelum']
-            st.markdown(f"""
+        if tampil_lingkungan:
+            with st.expander("🌿 Rincian Emisi CO₂"):
+                e = payload['emisi_sebelum']
+                st.markdown(f"""
 | Komponen | Nilai |
 |---|---|
 | Faktor emisi | {e['faktor_emisi']} kgCO₂/kWh ({e['referensi']}) |
 | Emisi per bulan | {e['emisi_kg_bulan']} kgCO₂ |
 | Emisi per tahun | {e['emisi_kg_tahun']} kgCO₂ |
         """)
-            if hasil_opt['aktif'] and 'emisi_sesudah' in hasil_opt:
-                es = hasil_opt['emisi_sesudah']
-                st.markdown("**Setelah optimasi:**")
-                st.markdown(f"""
+                if hasil_opt['aktif'] and 'emisi_sesudah' in hasil_opt:
+                    es = hasil_opt['emisi_sesudah']
+                    st.markdown("**Setelah optimasi:**")
+                    st.markdown(f"""
 | Komponen | Nilai |
 |---|---|
 | Emisi sesudah | {es['emisi_kg_bulan']} kgCO₂/bulan |

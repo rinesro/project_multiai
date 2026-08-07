@@ -8,7 +8,32 @@ sini, bukan menulis ulang prompt/logika di dua tempat.
 Tidak ada dependensi Streamlit di modul ini.
 """
 
+import re
+
 import google.generativeai as genai
+
+
+def _bersihkan_markdown(teks: str) -> str:
+    """
+    Jaring pengaman KEDUA selain instruksi prompt (aturan #11 di bawah)
+    -- LLM tidak 100% patuh instruksi setiap saat. Hapus sisa sintaks
+    markdown yang mungkin lolos supaya tidak muncul literal di UI
+    (kedua interface merender teks ini sebagai paragraf polos: Next.js
+    lewat interpolasi teks biasa <p>{narasi}</p>, Streamlit lewat
+    st.markdown() yang justru MERENDER markdown -- inkonsistensi ini
+    persis kenapa markdown harus dihindari total dari sumbernya, bukan
+    cukup diandalkan salah satu sisi UI untuk menanganinya).
+
+    Regex ini SENGAJA tidak menyentuh tanda hubung/pisah yang sah dalam
+    Bahasa Indonesia (kata ulang seperti "anak-anak", rentang angka
+    seperti "2020-2024") -- sudah diuji eksplisit untuk kasus ini.
+    """
+    teks = re.sub(r'\*\*(.+?)\*\*', r'\1', teks)          # **tebal**
+    teks = re.sub(r'__(.+?)__', r'\1', teks)               # __tebal__
+    teks = re.sub(r'(?<!\w)\*(?!\s)(.+?)(?<!\s)\*(?!\w)', r'\1', teks)  # *miring*
+    teks = re.sub(r'^#{1,6}\s*', '', teks, flags=re.MULTILINE)          # # Judul
+    teks = re.sub(r'^[\-\*]\s+', '', teks, flags=re.MULTILINE)          # - bullet
+    return teks.strip()
 
 
 # ============================================================
@@ -118,12 +143,42 @@ sudah dimaksimalkan pengurangannya — sisanya cuma bisa dihemat lewat ganti ala
         konteks_opt = "Optimasi tidak diperlukan — konsumsi sudah dalam zona efisien."
 
     # pesan_anomali sudah lengkap & sesuai domain (Rp/kWh) dari
-    # core/anomaly_detector.py — tidak perlu disusun ulang di sini.
+    # action_analyst/anomaly_evaluator.py — tidak perlu disusun ulang di sini.
     anomali_str       = payload['pesan_anomali']
     jenis_meteran_str = (
         "Prabayar (Token)" if payload['is_prabayar'] else "Pascabayar (Tagihan)"
     )
-    fokus_str    = " + ".join(intent_user) if intent_user else "Efisiensi Umum"
+    # PENTING: sebelumnya cuma nyantumin fokus_str sebagai DATA pasif
+    # ("Fokus user: Biaya") tanpa instruksi perilaku yang tegas —
+    # akibatnya Gemini tidak benar-benar membedakan narasi antara
+    # "Biaya saja" vs "Biaya + Lingkungan" (dua-duanya kebaca sama).
+    # Sekarang dibuat instruksi EKSPLISIT per kombinasi, bukan cuma
+    # data yang diserahkan ke interpretasi bebas Gemini.
+    fokus_biaya      = "Biaya" in intent_user
+    fokus_lingkungan = "Lingkungan" in intent_user
+    if fokus_biaya and fokus_lingkungan:
+        instruksi_fokus = (
+            "User peduli BIAYA dan LINGKUNGAN sekaligus — bahas dua-duanya "
+            "secara seimbang, jangan berat sebelah ke salah satu."
+        )
+    elif fokus_biaya:
+        instruksi_fokus = (
+            "User HANYA memilih fokus BIAYA — fokus penuh ke penghematan "
+            "tagihan/token. JANGAN singgung dampak lingkungan atau emisi "
+            "sama sekali, walau datanya tersedia di atas."
+        )
+    elif fokus_lingkungan:
+        instruksi_fokus = (
+            "User HANYA memilih fokus LINGKUNGAN — fokus penuh ke "
+            "pengurangan emisi/dampak lingkungan. JANGAN singgung "
+            "penghematan biaya/tagihan/token sama sekali, walau datanya "
+            "tersedia di atas."
+        )
+    else:
+        instruksi_fokus = (
+            "User tidak menentukan fokus spesifik — bahas efisiensi secara "
+            "umum, boleh singgung biaya maupun lingkungan secukupnya."
+        )
     emisi_sblm   = payload['emisi_sebelum']
 
     prompt = f"""
@@ -144,9 +199,11 @@ DATA ANALISIS (ringkasan, bukan rincian):
 - Tingkat efisiensi     : {label_ike} (skor IKE {payload['ike']:.2f} kWh/m²/bulan — \
 JANGAN sebut angka atau istilah "IKE" ini ke user)
 - Emisi sekarang        : {emisi_sblm['emisi_kg_bulan']} kgCO₂/bulan
-- Fokus user             : {fokus_str}
 - Jumlah alat bisa dikurangi jam pakainya : {jumlah_fleksibel}
 - Jumlah alat sebaiknya diganti           : {jumlah_tdk_fleksibel}
+
+INSTRUKSI FOKUS (WAJIB DIIKUTI KETAT, ini bukan sekadar informasi): \
+{instruksi_fokus}
 
 {konteks_opt}
 
@@ -163,8 +220,12 @@ pakai beda dengan mengganti alat, dan mana yang lebih prioritas.
 4. Akhiri dengan kalimat penyemangat yang hangat dan personal.
 5. Jika konsumsi sudah efisien, berikan pujian tulus dan satu tips umum \
 tingkat lanjut (tanpa menyebut alat spesifik).
-6. Hubungkan dampak penghematan energi dengan SDG 7 (energi bersih) dan \
-SDG 13 (aksi iklim) secara natural, bukan sebagai daftar.
+6. Ikuti INSTRUKSI FOKUS di atas secara KETAT — itu aturan wajib, bukan \
+sekadar konteks tambahan. Kalau dampak lingkungan/emisi memang boleh \
+disinggung (sesuai instruksi fokus), JANGAN sebut istilah kebijakan/ \
+akademis seperti "SDG", "Sustainable Development Goals", "pembangunan \
+berkelanjutan", "tujuan pembangunan global", "aksi iklim", atau \
+semacamnya — cukup manfaat konkret yang LANGSUNG dirasakan user sendiri.
 7. Gunakan bahasa Indonesia yang hangat, sangat mudah dipahami orang \
 awam, tidak teknis sama sekali.
 8. Panjang respons: 2–3 paragraf singkat — ini konten UTAMA yang dibaca \
@@ -174,6 +235,17 @@ duluan, harus padat dan enak di-scan, bukan wall of text.
 Pascabayar, tetap pakai istilah "tagihan" seperti biasa.
 10. JANGAN gunakan istilah teknis "IKE" atau "Intensitas Konsumsi \
 Energi" sama sekali — cukup sebut kategorinya ("Efisien", "Boros", dst).
+11. JANGAN pakai format markdown SAMA SEKALI — tidak ada **tebal**, \
+*miring*, daftar berpoin dengan "-"/"*", maupun tanda pagar "#" untuk \
+judul. Teks ini dirender APA ADANYA sebagai paragraf polos (bukan lewat \
+parser markdown), jadi simbol markdown akan muncul literal dan terlihat \
+rusak di layar user. Tulis paragraf naratif biasa dari awal sampai akhir.
+12. Ikuti kaidah tanda baca Bahasa Indonesia (PUEBI) dengan benar, \
+khususnya tanda hubung/pisah: JANGAN pakai tanda "-" sebagai penyisip \
+klausa informal di tengah kalimat (gaya itu tidak baku dalam Bahasa \
+Indonesia meski umum di teks Inggris). Kalau perlu menyisipkan \
+keterangan tambahan, gunakan tanda koma, titik dua, atau susun ulang \
+jadi dua kalimat — bukan tanda hubung/pisah di tengah kalimat.
 """
     response = model.generate_content(prompt)
-    return response.text
+    return _bersihkan_markdown(response.text)

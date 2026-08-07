@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Panel, DividerLabel } from "./ui";
 import { RekomendasiPerangkat } from "./RekomendasiPerangkat";
 import { formatKwh, formatPersen, formatRupiah, formatTanggalIndo } from "@/lib/format";
-import type { AnalisisResponse, StatusAnomali } from "@/lib/types";
+import type { AnalisisResponse, FokusOptimasi, StatusAnomali } from "@/lib/types";
 
 const STATUS_STYLE: Record<
   StatusAnomali,
@@ -82,10 +82,23 @@ function StrukRow({ label, value, bold = false }: { label: string; value: string
   );
 }
 
-export function HasilAnalisis({ hasil }: { hasil: AnalisisResponse }) {
+export function HasilAnalisis({
+  hasil,
+  intentUser,
+}: {
+  hasil: AnalisisResponse;
+  intentUser: FokusOptimasi[];
+}) {
   const s = STATUS_STYLE[hasil.status_anomali];
   const opt = hasil.hasil_optimasi;
   const dashboardDiblokir = STATUS_BLOKIR_DASHBOARD.includes(hasil.status_anomali);
+
+  // Array kosong (user tidak pilih fokus spesifik) dianggap "tampilkan
+  // keduanya" — konsisten dengan instruksi_fokus di backend
+  // (services/narasi.py) yang juga membolehkan singgung keduanya kalau
+  // tidak ada fokus spesifik dipilih.
+  const tampilBiaya      = intentUser.length === 0 || intentUser.includes("Biaya");
+  const tampilLingkungan = intentUser.length === 0 || intentUser.includes("Lingkungan");
 
   return (
     <div className="space-y-5">
@@ -136,37 +149,69 @@ export function HasilAnalisis({ hasil }: { hasil: AnalisisResponse }) {
           Tingkat efisiensi listrik: <span className="text-cream">{hasil.label_ike}</span>
         </p>
         <p className="mt-1 text-xs text-cream-dim/60">
-          berdasarkan standar IKE (Depdiknas) — {hasil.ike.toFixed(2)} kWh/m²/bulan
+          berdasarkan kalibrasi IKE 5-lapis — {hasil.ike.toFixed(2)} kWh/m²/bulan
         </p>
       </Panel>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <MetricCard
-          label={hasil.is_prabayar ? "Estimasi Nilai Konsumsi" : "Estimasi Tagihan"}
-          value={formatRupiah(hasil.estimasi_rp)}
-        />
-        <MetricCard label="Konsumsi per Penghuni" value={formatKwh(hasil.kwh_per_org)} />
-        <MetricCard label="Emisi CO₂" value={`${hasil.emisi_sebelum.emisi_kg_bulan} kg/bln`} />
-      </div>
-
-      {opt.aktif && (
-        <div className="grid gap-3 sm:grid-cols-3">
-          {hasil.is_prabayar ? (
-            <MetricCard label="Token Dihemat/Bulan" value={formatKwh(opt.hemat_kwh)} />
-          ) : (
+      {(() => {
+        const kartu: React.ReactNode[] = [];
+        if (tampilBiaya) {
+          kartu.push(
             <MetricCard
-              label="Hemat Biaya/Bulan"
-              value={`${formatRupiah(opt.hemat_rp)} (${formatPersen(opt.persen_hemat_rp)})`}
+              key="biaya"
+              label={hasil.is_prabayar ? "Estimasi Nilai Konsumsi" : "Estimasi Tagihan"}
+              value={formatRupiah(hasil.estimasi_rp)}
             />
-          )}
-          <MetricCard
-            label="Kurang Emisi/Bulan"
-            value={`${opt.hemat_emisi_kg} kg (-${formatPersen(opt.persen_hemat_emisi)})`}
-          />
-          <MetricCard label="Emisi Setelah Optimasi" value={`${opt.emisi_akhir} kg/bln`} />
-        </div>
-      )}
+          );
+        }
+        // "Konsumsi per Penghuni" netral (bukan spesifik biaya/lingkungan) — selalu tampil.
+        kartu.push(
+          <MetricCard key="konsumsi" label="Konsumsi per Penghuni" value={formatKwh(hasil.kwh_per_org)} />
+        );
+        if (tampilLingkungan) {
+          kartu.push(
+            <MetricCard key="emisi" label="Emisi CO₂" value={`${hasil.emisi_sebelum.emisi_kg_bulan} kg/bln`} />
+          );
+        }
+        const gridClass =
+          kartu.length === 3 ? "sm:grid-cols-3" : kartu.length === 2 ? "sm:grid-cols-2" : "sm:grid-cols-1";
+        return <div className={`grid gap-3 ${gridClass}`}>{kartu}</div>;
+      })()}
 
+      {opt.aktif && (() => {
+        const kartu: React.ReactNode[] = [];
+        if (tampilBiaya) {
+          kartu.push(
+            hasil.is_prabayar ? (
+              <MetricCard key="token-hemat" label="Token Dihemat/Bulan" value={formatKwh(opt.hemat_kwh)} />
+            ) : (
+              <MetricCard
+                key="biaya-hemat"
+                label="Hemat Biaya/Bulan"
+                value={`${formatRupiah(opt.hemat_rp)} (${formatPersen(opt.persen_hemat_rp)})`}
+              />
+            )
+          );
+        }
+        if (tampilLingkungan) {
+          kartu.push(
+            <MetricCard
+              key="kurang-emisi"
+              label="Kurang Emisi/Bulan"
+              value={`${opt.hemat_emisi_kg} kg (-${formatPersen(opt.persen_hemat_emisi)})`}
+            />
+          );
+          kartu.push(
+            <MetricCard key="emisi-akhir" label="Emisi Setelah Optimasi" value={`${opt.emisi_akhir} kg/bln`} />
+          );
+        }
+        if (kartu.length === 0) return null;
+        const gridClass =
+          kartu.length === 3 ? "sm:grid-cols-3" : kartu.length === 2 ? "sm:grid-cols-2" : "sm:grid-cols-1";
+        return <div className={`grid gap-3 ${gridClass}`}>{kartu}</div>;
+      })()}
+
+      {tampilBiaya && (
       <Expandable title={hasil.is_prabayar ? "📄 Rincian Token (detail teknis)" : "📄 Rincian Tagihan (detail teknis)"}>
         <div className="space-y-2">
           <StrukRow label="Golongan daya" value={hasil.golongan_daya} />
@@ -206,18 +251,7 @@ export function HasilAnalisis({ hasil }: { hasil: AnalisisResponse }) {
             : "Estimasi tagihan ini bersifat prediktif — dihitung dari tarif resmi PLN dan spesifikasi/durasi pakai peralatan yang Anda masukkan, bukan dari pembacaan meteran langsung. Nominal aktual di rekening/struk bisa berbeda, dan estimasi ini belum memperhitungkan biaya admin (besarannya tergantung channel pembayaran yang Anda gunakan)."}
         </p>
       </Expandable>
-
-      <Expandable title="🔧 Klasifikasi Peralatan (detail teknis, opsional)">
-        <ul className="space-y-1.5 text-sm">
-          {hasil.hasil_dsm.map((a, i) => (
-            <li key={i} className="flex items-center gap-2">
-              <span className={a.label_dsm === "Fleksibel" ? "text-teal" : "text-red"}>●</span>
-              <span className="text-cream">{a.nama}</span>
-              <span className="text-cream-dim">— {a.label_dsm}</span>
-            </li>
-          ))}
-        </ul>
-      </Expandable>
+      )}
         </>
       )}
     </div>
