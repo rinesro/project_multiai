@@ -118,7 +118,7 @@ sudah dimaksimalkan pengurangannya — sisanya cuma bisa dihemat lewat ganti ala
         konteks_opt = "Optimasi tidak diperlukan — konsumsi sudah dalam zona efisien."
 
     # pesan_anomali sudah lengkap & sesuai domain (Rp/kWh) dari
-    # core/anomaly_detector.py — tidak perlu disusun ulang di sini.
+    # action_analyst/anomaly_evaluator.py — tidak perlu disusun ulang di sini.
     anomali_str       = payload['pesan_anomali']
     jenis_meteran_str = (
         "Prabayar (Token)" if payload['is_prabayar'] else "Pascabayar (Tagihan)"
@@ -163,8 +163,14 @@ pakai beda dengan mengganti alat, dan mana yang lebih prioritas.
 4. Akhiri dengan kalimat penyemangat yang hangat dan personal.
 5. Jika konsumsi sudah efisien, berikan pujian tulus dan satu tips umum \
 tingkat lanjut (tanpa menyebut alat spesifik).
-6. Hubungkan dampak penghematan energi dengan SDG 7 (energi bersih) dan \
-SDG 13 (aksi iklim) secara natural, bukan sebagai daftar.
+6. Kalau relevan dengan fokus user (terutama fokus "Lingkungan"), boleh \
+sebutkan dampak lingkungan (pengurangan emisi) secara ringan sebagai \
+bonus motivasi — TAPI JANGAN sebut istilah kebijakan/akademis seperti \
+"SDG", "Sustainable Development Goals", "pembangunan berkelanjutan", \
+"tujuan pembangunan global", "aksi iklim", atau semacamnya. Fokus pada \
+manfaat konkret yang LANGSUNG dirasakan user sendiri — rumah lebih \
+hemat, tagihan lebih ringan, kontribusi kecil untuk lingkungan sekitar \
+rumahnya — bukan narasi kebijakan atau agenda global.
 7. Gunakan bahasa Indonesia yang hangat, sangat mudah dipahami orang \
 awam, tidak teknis sama sekali.
 8. Panjang respons: 2–3 paragraf singkat — ini konten UTAMA yang dibaca \
