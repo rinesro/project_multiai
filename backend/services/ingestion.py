@@ -10,7 +10,7 @@ yang ditulis ulang di dua tempat berbeda dengan risiko tidak sinkron.
 Kelas ini murni Python (tidak ada dependensi Streamlit), jadi aman
 dipakai di kedua konteks.
 
-Prediksi anomali: dilempar ke action_analyst/anomaly_evaluator.py — kelas ini
+Prediksi anomali: dilempar ke action_analist/anomaly_evaluator.py — kelas ini
 hanya orkestrasi kalkulasi.
 
 Semua kalkulasi yang BISA dihitung dari data yang tersedia di sini
@@ -27,7 +27,7 @@ from core.kalkulasi import (
     hitung_estimasi_kwh_periode, hitung_saldo_token_awal,
     hitung_token_terpakai_aktual, PBJT_RUMAH_TANGGA,
 )
-from action_analyst.anomaly_evaluator import (
+from action_analist.anomaly_evaluator import (
     evaluasi_anomali_pascabayar, evaluasi_anomali_prabayar,
 )
 
@@ -112,7 +112,7 @@ class DataIngestionValidatorAgent:
         # Basisnya beda total: pascabayar bandingkan Rp vs Rp memakai siklus
         # tagihan tetap 30 hari; prabayar bandingkan kWh vs kWh dari selisih
         # saldo token, di-skala ke jumlah hari aktual sejak top-up (siklus
-        # top-up tidak selalu 30 hari). Lihat action_analyst/anomaly_evaluator.py.
+        # top-up tidak selalu 30 hari). Lihat action_analist/anomaly_evaluator.py.
         if self.is_prabayar:
             if token_context is None:
                 raise ValueError(

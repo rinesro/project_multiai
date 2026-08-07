@@ -143,7 +143,7 @@ sudah dimaksimalkan pengurangannya — sisanya cuma bisa dihemat lewat ganti ala
         konteks_opt = "Optimasi tidak diperlukan — konsumsi sudah dalam zona efisien."
 
     # pesan_anomali sudah lengkap & sesuai domain (Rp/kWh) dari
-    # action_analyst/anomaly_evaluator.py — tidak perlu disusun ulang di sini.
+    # action_analist/anomaly_evaluator.py — tidak perlu disusun ulang di sini.
     anomali_str       = payload['pesan_anomali']
     jenis_meteran_str = (
         "Prabayar (Token)" if payload['is_prabayar'] else "Pascabayar (Tagihan)"

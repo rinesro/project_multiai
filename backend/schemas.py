@@ -100,7 +100,7 @@ class AnalisisResponse(BaseModel):
     tagihan_asli: Optional[float] = None
     token_context: Optional[dict] = None
 
-    # Lapis 1 — status prediksi anomali (skema seragam, lihat action_analyst/anomaly_evaluator.py)
+    # Lapis 1 — status prediksi anomali (skema seragam, lihat action_analist/anomaly_evaluator.py)
     status_anomali: str
     selisih_pct: Optional[float] = None
     pesan_anomali: str
