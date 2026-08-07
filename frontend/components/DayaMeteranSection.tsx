@@ -31,7 +31,13 @@ export function DayaMeteranSection({
       : tarifRendah.non_subsidi
     : tarifBiasa;
   const pbjt = referensi?.pbjt_rumah_tangga ?? 0.024;
-  const tampilkanToggleSubsidi = dayaVa === 450 || dayaVa === 900;
+  // Toggle subsidi CUMA relevan untuk 900 VA -- 450 VA di kenyataan
+  // SELALU bersubsidi (tidak ada tarif "450 VA non-subsidi" sama
+  // sekali per sumber [1], lihat TARIF_DAYA_RENDAH di core/kalkulasi.py:
+  // nilainya flat, bukan dict {subsidi, non_subsidi} seperti 900VA).
+  // Menampilkan toggle untuk 450VA jadi menyesatkan -- kelihatan ada
+  // pilihan yang berpengaruh, padahal hasilnya selalu sama.
+  const tampilkanToggleSubsidi = dayaVa === 900;
 
   return (
     <Panel>

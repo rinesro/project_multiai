@@ -186,16 +186,17 @@ with c5:
     )
     is_prabayar = (jenis_meteran == "Prabayar (Token)")
 
-# Status subsidi HANYA relevan untuk 450/900 VA — golongan >=1.300VA
-# cuma punya satu tarif tanpa distingsi subsidi (lihat core/kalkulasi.py).
-if daya_va in (450, 900):
+# Toggle subsidi CUMA relevan untuk 900 VA -- 450 VA di kenyataan SELALU
+# bersubsidi (tidak ada tarif "450 VA non-subsidi" sama sekali, lihat
+# TARIF_DAYA_RENDAH di core/kalkulasi.py: nilainya flat, bukan dict
+# {subsidi, non_subsidi} seperti 900VA). Menampilkan toggle untuk
+# 450VA jadi menyesatkan -- kelihatan ada pilihan yang berpengaruh,
+# padahal hasilnya selalu sama.
+if daya_va == 900:
     is_subsidi = st.checkbox(
         "Pelanggan bersubsidi",
         value=False,
-        help=(
-            "900 VA: Rp605/kWh (subsidi) vs Rp1.352/kWh (RTM/non-subsidi). "
-            "450 VA cuma ada satu tarif, tidak berpengaruh ke perhitungan."
-        ),
+        help="900 VA: Rp605/kWh (subsidi) vs Rp1.352/kWh (RTM/non-subsidi).",
     )
 else:
     is_subsidi = False

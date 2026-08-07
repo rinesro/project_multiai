@@ -123,8 +123,11 @@ def get_tarif(daya_va: int, is_subsidi: bool = False) -> float:
     """
     Tarif Rp/kWh berdasarkan daya tersambung (VA) dan status subsidi. [1]
 
-    Status subsidi HANYA relevan untuk 450 & 900 VA. Golongan ≥1.300 VA
-    cuma punya satu tarif — parameter is_subsidi diabaikan di sana.
+    Status subsidi HANYA benar-benar relevan untuk 900 VA (dua tarif
+    berbeda tergantung status). Untuk 450 VA maupun golongan ≥1.300 VA,
+    parameter is_subsidi diabaikan sepenuhnya — 450 VA cuma punya satu
+    tarif (selalu subsidi, tidak ada opsi lain), dan ≥1.300 VA juga
+    cuma punya satu tarif per golongan tanpa distingsi subsidi.
     """
     if daya_va <= 450:
         return TARIF_DAYA_RENDAH[450]
