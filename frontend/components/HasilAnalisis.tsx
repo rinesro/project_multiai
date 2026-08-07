@@ -212,7 +212,7 @@ export function HasilAnalisis({
       })()}
 
       {tampilBiaya && (
-      <Expandable title={hasil.is_prabayar ? "📄 Rincian Token (detail teknis)" : "📄 Rincian Tagihan (detail teknis)"}>
+      <Expandable title={hasil.is_prabayar ? "📄 Rincian Token" : "📄 Rincian Tagihan"}>
         <div className="space-y-2">
           <StrukRow label="Golongan daya" value={hasil.golongan_daya} />
           <StrukRow label="Tarif" value={`${formatRupiah(hasil.tarif_digunakan)}/kWh`} />
