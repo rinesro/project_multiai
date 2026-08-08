@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Panel, DividerLabel } from "./ui";
 import { RekomendasiPerangkat } from "./RekomendasiPerangkat";
-import { formatKwh, formatPersen, formatRupiah, formatTanggalIndo } from "@/lib/format";
+import { formatKwh, formatRupiah, formatTanggalIndo } from "@/lib/format";
 import type { AnalisisResponse, FokusOptimasi, StatusAnomali } from "@/lib/types";
 
 const STATUS_STYLE: Record<
@@ -114,10 +114,6 @@ export function HasilAnalisis({
   const adaSaran        = gantiList.length > 0 || kurangiList.length > 0;
   const tampilkanSaran  = kelasPerluSaran && adaSaran;
 
-  // Daftar nama alat yang direkomendasikan dikurangi — dipakai sebagai
-  // keterangan aksi di kartu "Hemat Biaya/Bulan" (poin 5).
-  const namaAlatKurangi = kurangiList.map((k) => k.nama).join(", ");
-
   const labelEstimasi = hasil.is_prabayar ? "Estimasi Token" : "Estimasi Tagihan";
 
   return (
@@ -175,8 +171,8 @@ export function HasilAnalisis({
             <p className="mt-4 text-xs leading-relaxed text-cream-dim/70">
               ⚠️{" "}
               {hasil.is_prabayar
-                ? "Estimasi nilai konsumsi ini bersifat prediktif, dihitung dari tarif resmi PLN dan spesifikasi/durasi pakai peralatan yang Anda masukkan, bukan dari pembacaan meteran langsung. Nominal aktual bisa berbeda dari saldo token sesungguhnya, dan estimasi ini belum memperhitungkan biaya admin pembelian token (besarannya tergantung channel pembayaran yang Anda gunakan)."
-                : "Estimasi tagihan ini bersifat prediktif, dihitung dari tarif resmi PLN dan spesifikasi/durasi pakai peralatan yang Anda masukkan, bukan dari pembacaan meteran langsung. Nominal aktual di rekening/struk bisa berbeda, dan estimasi ini belum memperhitungkan biaya admin (besarannya tergantung channel pembayaran yang Anda gunakan)."}
+                ? "Estimasi nilai konsumsi ini bersifat prediktif — dihitung dari tarif resmi PLN dan spesifikasi/durasi pakai peralatan yang Anda masukkan, bukan dari pembacaan meteran langsung. Nominal aktual bisa berbeda dari saldo token sesungguhnya, dan estimasi ini belum memperhitungkan biaya admin pembelian token (besarannya tergantung channel pembayaran yang Anda gunakan)."
+                : "Estimasi tagihan ini bersifat prediktif — dihitung dari tarif resmi PLN dan spesifikasi/durasi pakai peralatan yang Anda masukkan, bukan dari pembacaan meteran langsung. Nominal aktual di rekening/struk bisa berbeda, dan estimasi ini belum memperhitungkan biaya admin (besarannya tergantung channel pembayaran yang Anda gunakan)."}
             </p>
           </Expandable>
 
@@ -192,7 +188,7 @@ export function HasilAnalisis({
               Tingkat efisiensi listrik: <span className="text-cream">{hasil.label_ike}</span>
             </p>
             <p className="mt-1 text-xs text-cream-dim/60">
-              berdasarkan kalibrasi IKE 5 lapis {hasil.ike.toFixed(2)} kWh/m²/bulan
+              berdasarkan kalibrasi IKE 5-lapis — {hasil.ike.toFixed(2)} kWh/m²/bulan
             </p>
           </Panel>
 
@@ -205,7 +201,11 @@ export function HasilAnalisis({
 
             {tampilkanSaran && (
               <>
-                <DividerLabel>Untuk Lebih Hemat Bisa Lakukan hal ini</DividerLabel>
+                <DividerLabel>
+                  {hasil.label_ike.includes("Boros")
+                    ? "Untuk Melakukan Penghematan Bisa Lakukan Hal Ini"
+                    : "Untuk Lebih Hemat Bisa Lakukan hal ini"}
+                </DividerLabel>
                 <RekomendasiPerangkat
                   hasilDsm={hasil.hasil_dsm}
                   hasilOpt={hasil.hasil_optimasi}
@@ -217,9 +217,13 @@ export function HasilAnalisis({
             )}
           </Panel>
 
-          {/* 5. Kartu metrik — urutan & tampilan sama seperti sebelumnya,
-              kecuali "Hemat Biaya/Bulan" yang sekarang dilengkapi aksi
-              konkret, tanda minus, dan disclaimer (khusus pascabayar). */}
+          {/* 5. Kartu metrik utama — sama seperti sebelumnya. Kartu hasil
+              greedy_optimizer (Hemat Biaya, Kurang Emisi, Emisi Setelah
+              Optimasi) SUDAH DIHAPUS dari sini -- itu duplikasi persis
+              dengan kotak "Estimasi Total Penghematan" yang sudah ada
+              di dalam RekomendasiPerangkat (poin 4), tepat di bawah
+              daftar "Bisa kurangi..." -- sekarang cuma ada SATU tempat
+              untuk hasil optimasi, bukan dua. */}
           {(() => {
             const kartu: React.ReactNode[] = [];
             if (tampilBiaya) {
@@ -235,50 +239,6 @@ export function HasilAnalisis({
                 <MetricCard key="emisi" label="Emisi CO₂" value={`${hasil.emisi_sebelum.emisi_kg_bulan} kg/bln`} />
               );
             }
-            const gridClass =
-              kartu.length === 3 ? "sm:grid-cols-3" : kartu.length === 2 ? "sm:grid-cols-2" : "sm:grid-cols-1";
-            return <div className={`grid gap-3 ${gridClass}`}>{kartu}</div>;
-          })()}
-
-          {opt.aktif && (() => {
-            const kartu: React.ReactNode[] = [];
-            if (tampilBiaya) {
-              kartu.push(
-                hasil.is_prabayar ? (
-                  <MetricCard key="token-hemat" label="Token Dihemat/Bulan" value={formatKwh(opt.hemat_kwh)} />
-                ) : (
-                  <div
-                    key="biaya-hemat"
-                    className="rounded-lg border border-graphite-700 bg-graphite-800/50 px-4 py-3"
-                  >
-                    <p className="text-xs uppercase tracking-wide text-cream-dim">Hemat Biaya/Bulan</p>
-                    {namaAlatKurangi && (
-                      <p className="mt-1 text-xs text-cream-dim/80">Kurangi {namaAlatKurangi}</p>
-                    )}
-                    <p className="mt-1 font-mono text-lg text-cream">
-                      {formatRupiah(opt.hemat_rp)} (-{formatPersen(opt.persen_hemat_rp)})
-                    </p>
-                    <p className="mt-1.5 text-[11px] leading-snug text-cream-dim/60">
-                      ⚠️ Estimasi — cara PLN menghitung tagihan riil bisa sedikit berbeda dari
-                      perhitungan ini.
-                    </p>
-                  </div>
-                )
-              );
-            }
-            if (tampilLingkungan) {
-              kartu.push(
-                <MetricCard
-                  key="kurang-emisi"
-                  label="Kurang Emisi/Bulan"
-                  value={`${opt.hemat_emisi_kg} kg (-${formatPersen(opt.persen_hemat_emisi)})`}
-                />
-              );
-              kartu.push(
-                <MetricCard key="emisi-akhir" label="Emisi Setelah Optimasi" value={`${opt.emisi_akhir} kg/bln`} />
-              );
-            }
-            if (kartu.length === 0) return null;
             const gridClass =
               kartu.length === 3 ? "sm:grid-cols-3" : kartu.length === 2 ? "sm:grid-cols-2" : "sm:grid-cols-1";
             return <div className={`grid gap-3 ${gridClass}`}>{kartu}</div>;
@@ -301,12 +261,12 @@ export function HasilAnalisis({
             <div className="space-y-1.5 text-xs leading-relaxed text-cream-dim/70">
               <p>
                 <span className="text-teal">● Fleksibel</span>: alat yang durasi/jam pemakaiannya bisa
-                dikurangi tanpa mengganggu kebutuhan pokok (mis. AC, mesin cuci) cara hemat: kurangi
+                dikurangi tanpa mengganggu kebutuhan pokok (mis. AC, mesin cuci) — cara hemat: kurangi
                 jam pakainya.
               </p>
               <p>
                 <span className="text-red">● Tidak Fleksibel</span>: alat yang harus menyala sesuai
-                kebutuhan dan sulit dikurangi durasinya (mis. kulkas, router) cara hemat: ganti
+                kebutuhan dan sulit dikurangi durasinya (mis. kulkas, router) — cara hemat: ganti
                 dengan model yang lebih hemat energi, bukan mengurangi jam pakainya.
               </p>
             </div>

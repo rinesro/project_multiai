@@ -93,9 +93,12 @@ export function RekomendasiPerangkat({
 
           {/* Ringkasan agregat — total dari SELURUH langkah pengurangan
               di atas, dipakai angka hasil_optimasi langsung (bukan
-              dijumlah manual dari tiap baris) supaya konsisten dengan
-              kartu metrik "Hemat Biaya/Bulan" di bawah nanti — dua-duanya
-              sama-sama bersumber dari hasil_optimasi.hemat_rp/dst. */}
+              dijumlah manual dari tiap baris) supaya presisi. Ini
+              SATU-SATUNYA tempat hasil greedy_optimizer ditampilkan --
+              sebelumnya ada kartu metrik terpisah di bawah (Hemat
+              Biaya/Bulan dkk) yang menampilkan angka SAMA PERSIS,
+              duplikasi itu sudah dihapus supaya tidak ada dua tempat
+              untuk satu angka yang sama. */}
           {(tampilBiaya || tampilLingkungan) && (
             <div className="mt-3 rounded-lg border border-teal/30 bg-teal-dim px-4 py-3">
               <p className="text-xs uppercase tracking-wide text-cream-dim">
@@ -115,6 +118,17 @@ export function RekomendasiPerangkat({
                   </span>
                 )}
               </div>
+              {tampilLingkungan && (
+                <p className="mt-1.5 font-mono text-xs text-cream-dim">
+                  Emisi setelah optimasi: {hasilOpt.emisi_akhir} kg/bln
+                </p>
+              )}
+              {tampilBiaya && !isPrabayar && (
+                <p className="mt-2 text-[11px] leading-snug text-cream-dim/60">
+                  ⚠️ Estimasi — cara PLN menghitung tagihan riil bisa sedikit berbeda dari
+                  perhitungan ini.
+                </p>
+              )}
             </div>
           )}
         </div>
