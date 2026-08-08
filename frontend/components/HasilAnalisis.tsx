@@ -175,8 +175,8 @@ export function HasilAnalisis({
             <p className="mt-4 text-xs leading-relaxed text-cream-dim/70">
               ⚠️{" "}
               {hasil.is_prabayar
-                ? "Estimasi nilai konsumsi ini bersifat prediktif — dihitung dari tarif resmi PLN dan spesifikasi/durasi pakai peralatan yang Anda masukkan, bukan dari pembacaan meteran langsung. Nominal aktual bisa berbeda dari saldo token sesungguhnya, dan estimasi ini belum memperhitungkan biaya admin pembelian token (besarannya tergantung channel pembayaran yang Anda gunakan)."
-                : "Estimasi tagihan ini bersifat prediktif — dihitung dari tarif resmi PLN dan spesifikasi/durasi pakai peralatan yang Anda masukkan, bukan dari pembacaan meteran langsung. Nominal aktual di rekening/struk bisa berbeda, dan estimasi ini belum memperhitungkan biaya admin (besarannya tergantung channel pembayaran yang Anda gunakan)."}
+                ? "Estimasi nilai konsumsi ini bersifat prediktif, dihitung dari tarif resmi PLN dan spesifikasi/durasi pakai peralatan yang Anda masukkan, bukan dari pembacaan meteran langsung. Nominal aktual bisa berbeda dari saldo token sesungguhnya, dan estimasi ini belum memperhitungkan biaya admin pembelian token (besarannya tergantung channel pembayaran yang Anda gunakan)."
+                : "Estimasi tagihan ini bersifat prediktif, dihitung dari tarif resmi PLN dan spesifikasi/durasi pakai peralatan yang Anda masukkan, bukan dari pembacaan meteran langsung. Nominal aktual di rekening/struk bisa berbeda, dan estimasi ini belum memperhitungkan biaya admin (besarannya tergantung channel pembayaran yang Anda gunakan)."}
             </p>
           </Expandable>
 
@@ -192,7 +192,7 @@ export function HasilAnalisis({
               Tingkat efisiensi listrik: <span className="text-cream">{hasil.label_ike}</span>
             </p>
             <p className="mt-1 text-xs text-cream-dim/60">
-              berdasarkan kalibrasi IKE 5-lapis — {hasil.ike.toFixed(2)} kWh/m²/bulan
+              berdasarkan kalibrasi IKE 5 lapis {hasil.ike.toFixed(2)} kWh/m²/bulan
             </p>
           </Panel>
 
@@ -298,14 +298,18 @@ export function HasilAnalisis({
               ))}
             </ul>
             <div className="my-4 tear-line" aria-hidden />
-            <p className="text-xs leading-relaxed text-cream-dim/70">
-              <span className="text-teal">● Fleksibel</span>: alat yang durasi/jam pemakaiannya bisa
-              dikurangi tanpa mengganggu kebutuhan pokok (mis. AC, mesin cuci) — cara hemat: kurangi
-              jam pakainya.{" "}
-              <span className="text-red">● Tidak Fleksibel</span>: alat yang harus menyala sesuai
-              kebutuhan dan sulit dikurangi durasinya (mis. kulkas, router) — cara hemat: ganti
-              dengan model yang lebih hemat energi, bukan mengurangi jam pakainya.
-            </p>
+            <div className="space-y-1.5 text-xs leading-relaxed text-cream-dim/70">
+              <p>
+                <span className="text-teal">● Fleksibel</span>: alat yang durasi/jam pemakaiannya bisa
+                dikurangi tanpa mengganggu kebutuhan pokok (mis. AC, mesin cuci) cara hemat: kurangi
+                jam pakainya.
+              </p>
+              <p>
+                <span className="text-red">● Tidak Fleksibel</span>: alat yang harus menyala sesuai
+                kebutuhan dan sulit dikurangi durasinya (mis. kulkas, router) cara hemat: ganti
+                dengan model yang lebih hemat energi, bukan mengurangi jam pakainya.
+              </p>
+            </div>
           </Expandable>
         </>
       )}
