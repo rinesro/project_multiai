@@ -192,7 +192,7 @@ export function HasilAnalisis({
               Tingkat efisiensi listrik: <span className="text-cream">{hasil.label_ike}</span>
             </p>
             <p className="mt-1 text-xs text-cream-dim/60">
-              berdasarkan kalibrasi IKE 5 lapis {hasil.ike.toFixed(2)} kWh/m²/bulan
+              berdasarkan standar IKE yang sudah disesuaikan untuk rumah tangga 
             </p>
           </Panel>
 
@@ -287,7 +287,7 @@ export function HasilAnalisis({
           {/* 6. Klasifikasi Peralatan — judul diganti jadi nama standar
               metodenya (DSM), struktur/isi sama, ditambah penjelasan
               awam di paling bawah (dibatasi tear-line). */}
-          <Expandable title="Klasifikasi Perangkat Berdasarkan DSM (Demand Side Management)">
+          <Expandable title="Klasifikasi Perangkat Berdasarkan standar DSM (Demand Side Management)">
             <ul className="space-y-1.5 text-sm">
               {hasil.hasil_dsm.map((a, i) => (
                 <li key={i} className="flex items-center gap-2">
