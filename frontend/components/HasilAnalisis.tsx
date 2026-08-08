@@ -43,6 +43,11 @@ const STATUS_BLOKIR_DASHBOARD: StatusAnomali[] = [
   "data_belum_cukup",
 ];
 
+// Zona IKE di mana saran hemat (ganti/kurangi) relevan ditampilkan —
+// Cukup Efisien atau lebih boros. Sangat Efisien/Efisien dianggap
+// sudah cukup baik, tidak perlu dipaksa saran tambahan.
+const ZONA_PERLU_SARAN = ["Cukup Efisien", "Boros", "Sangat Boros"];
+
 function MetricCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-graphite-700 bg-graphite-800/50 px-4 py-3">
@@ -100,9 +105,24 @@ export function HasilAnalisis({
   const tampilBiaya      = intentUser.length === 0 || intentUser.includes("Biaya");
   const tampilLingkungan = intentUser.length === 0 || intentUser.includes("Lingkungan");
 
+  // Saran (ganti/kurangi) cuma tampil kalau (a) zona IKE Cukup Efisien
+  // atau lebih boros, DAN (b) memang ada sesuatu untuk disarankan —
+  // supaya tidak muncul section kosong cuma karena zonanya cocok.
+  const gantiList      = hasil.hasil_dsm.filter((a) => a.label_dsm === "Tidak Fleksibel");
+  const kurangiList    = opt.aktif ? opt.langkah : [];
+  const kelasPerluSaran = ZONA_PERLU_SARAN.includes(hasil.label_ike);
+  const adaSaran        = gantiList.length > 0 || kurangiList.length > 0;
+  const tampilkanSaran  = kelasPerluSaran && adaSaran;
+
+  // Daftar nama alat yang direkomendasikan dikurangi — dipakai sebagai
+  // keterangan aksi di kartu "Hemat Biaya/Bulan" (poin 5).
+  const namaAlatKurangi = kurangiList.map((k) => k.nama).join(", ");
+
+  const labelEstimasi = hasil.is_prabayar ? "Estimasi Token" : "Estimasi Tagihan";
+
   return (
     <div className="space-y-5">
-      {/* Status anomali — selalu tampil, tidak pernah disembunyikan */}
+      {/* 1. Status anomali — selalu tampil, tidak pernah disembunyikan */}
       <div className={`rounded-xl border ${s.border} ${s.bg} px-5 py-4`}>
         <p className={`text-sm font-semibold ${s.text}`}>{s.label}</p>
         <p className="mt-1 text-sm text-cream-dim">{hasil.pesan_anomali}</p>
@@ -116,145 +136,179 @@ export function HasilAnalisis({
 
       {!dashboardDiblokir && (
         <>
-      {/* ── KONTEN UTAMA: narasi + rekomendasi aksi ──────────────────────────
-          Ini yang dibaca duluan oleh user awam — bahasa strategis dari
-          Gemini, langsung disusul daftar aksi konkret (ganti/kurangi)
-          yang dihitung deterministik oleh kode, bukan LLM. */}
-      <Panel className="border-amber-dim/40">
-        <p className="mb-3 text-sm font-semibold text-amber-bright">💡 Rekomendasi EnergiCerdas AI</p>
-        <p className="whitespace-pre-line text-sm leading-relaxed text-cream-dim">{hasil.narasi}</p>
+          {/* 2. Estimasi Tagihan/Token — header expander LANGSUNG menunjukkan
+              nominalnya (bukan judul generik "detail teknis" yang bikin
+              awam bingung). Terbuka -> rincian breakdown, baris terakhir
+              cukup "Total" (kata "Estimasi" sudah ada di header). */}
+          <Expandable title={`${labelEstimasi}: ${formatRupiah(hasil.estimasi_rp)}`}>
+            <div className="space-y-2">
+              <StrukRow label="Golongan daya" value={hasil.golongan_daya} />
+              <StrukRow label="Tarif" value={`${formatRupiah(hasil.tarif_digunakan)}/kWh`} />
+              <StrukRow label="Biaya pemakaian" value={formatRupiah(hasil.biaya_pemakaian)} />
+              <StrukRow label="PBJT (2,4%)" value={formatRupiah(hasil.biaya_pbjt)} />
+              <StrukRow label="Biaya Materai" value={formatRupiah(hasil.biaya_materai)} />
+              <div className="my-2 tear-line" aria-hidden />
+              <StrukRow label="Total" value={formatRupiah(hasil.estimasi_rp)} bold />
 
-        <DividerLabel>
-          {hasil.label_ike.includes("Boros")
-            ? "Untuk Melakukan Penghematan Bisa Lakukan Hal Ini"
-            : "Untuk Lebih Hemat Bisa Lakukan hal ini"}
-        </DividerLabel>
+              {hasil.is_prabayar && hasil.token_context && (
+                <>
+                  <div className="my-3 tear-line" aria-hidden />
+                  <StrukRow
+                    label="Tanggal pembelian"
+                    value={formatTanggalIndo(hasil.token_context.tanggal_pembelian)}
+                  />
+                  <StrukRow label="Hari berjalan" value={`${hasil.token_context.hari_berjalan} hari`} />
+                  <StrukRow label="Saldo awal periode" value={formatKwh(hasil.token_context.saldo_awal)} />
+                  <StrukRow label="Sisa saat ini" value={formatKwh(hasil.token_context.sisa_saat_ini)} />
+                  <StrukRow
+                    label="Token terpakai aktual"
+                    value={formatKwh(hasil.token_context.token_terpakai_aktual)}
+                    bold
+                  />
+                  <StrukRow
+                    label="Estimasi dari peralatan"
+                    value={formatKwh(hasil.token_context.estimasi_terpakai_perangkat)}
+                  />
+                </>
+              )}
+            </div>
+            <p className="mt-4 text-xs leading-relaxed text-cream-dim/70">
+              ⚠️{" "}
+              {hasil.is_prabayar
+                ? "Estimasi nilai konsumsi ini bersifat prediktif — dihitung dari tarif resmi PLN dan spesifikasi/durasi pakai peralatan yang Anda masukkan, bukan dari pembacaan meteran langsung. Nominal aktual bisa berbeda dari saldo token sesungguhnya, dan estimasi ini belum memperhitungkan biaya admin pembelian token (besarannya tergantung channel pembayaran yang Anda gunakan)."
+                : "Estimasi tagihan ini bersifat prediktif — dihitung dari tarif resmi PLN dan spesifikasi/durasi pakai peralatan yang Anda masukkan, bukan dari pembacaan meteran langsung. Nominal aktual di rekening/struk bisa berbeda, dan estimasi ini belum memperhitungkan biaya admin (besarannya tergantung channel pembayaran yang Anda gunakan)."}
+            </p>
+          </Expandable>
 
-        <RekomendasiPerangkat
-          hasilDsm={hasil.hasil_dsm}
-          hasilOpt={hasil.hasil_optimasi}
-          isPrabayar={hasil.is_prabayar}
-        />
-      </Panel>
+          {/* 3. Total Konsumsi Bulanan + Tingkat Efisiensi — sama seperti
+              sebelumnya, cuma posisinya naik ke urutan ke-3. */}
+          <Panel className="bg-panel-texture text-center">
+            <p className="text-xs uppercase tracking-widest text-cream-dim">Total Konsumsi Bulanan</p>
+            <p className="digit-glow mt-2 font-mono text-5xl font-semibold text-amber sm:text-6xl">
+              {hasil.total_kwh}
+              <span className="ml-2 text-2xl text-amber-dim sm:text-3xl">kWh</span>
+            </p>
+            <p className="mt-2 font-mono text-sm text-cream-dim">
+              Tingkat efisiensi listrik: <span className="text-cream">{hasil.label_ike}</span>
+            </p>
+            <p className="mt-1 text-xs text-cream-dim/60">
+              berdasarkan kalibrasi IKE 5-lapis — {hasil.ike.toFixed(2)} kWh/m²/bulan
+            </p>
+          </Panel>
 
-      {/* ── DETAIL PENDUKUNG: angka & rincian teknis ────────────────────── */}
+          {/* 4. Panel Narasi + saran — narasi menjelaskan angka di atas &
+              bawahnya. Saran (ganti/kurangi) cuma muncul kalau zona
+              Cukup Efisien+ DAN memang ada sesuatu untuk disarankan. */}
+          <Panel className="border-amber-dim/40">
+            <p className="mb-3 text-sm font-semibold text-amber-bright">💡 Rekomendasi EnergiCerdas AI</p>
+            <p className="whitespace-pre-line text-sm leading-relaxed text-cream-dim">{hasil.narasi}</p>
 
-      <Panel className="bg-panel-texture text-center">
-        <p className="text-xs uppercase tracking-widest text-cream-dim">Total Konsumsi Bulanan</p>
-        <p className="digit-glow mt-2 font-mono text-5xl font-semibold text-amber sm:text-6xl">
-          {hasil.total_kwh}
-          <span className="ml-2 text-2xl text-amber-dim sm:text-3xl">kWh</span>
-        </p>
-        <p className="mt-2 font-mono text-sm text-cream-dim">
-          Tingkat efisiensi listrik: <span className="text-cream">{hasil.label_ike}</span>
-        </p>
-        <p className="mt-1 text-xs text-cream-dim/60">
-          berdasarkan kalibrasi IKE 5-lapis — {hasil.ike.toFixed(2)} kWh/m²/bulan
-        </p>
-      </Panel>
+            {tampilkanSaran && (
+              <>
+                <DividerLabel>Untuk Lebih Hemat Bisa Lakukan hal ini</DividerLabel>
+                <RekomendasiPerangkat
+                  hasilDsm={hasil.hasil_dsm}
+                  hasilOpt={hasil.hasil_optimasi}
+                  isPrabayar={hasil.is_prabayar}
+                  tampilBiaya={tampilBiaya}
+                  tampilLingkungan={tampilLingkungan}
+                />
+              </>
+            )}
+          </Panel>
 
-      {(() => {
-        const kartu: React.ReactNode[] = [];
-        if (tampilBiaya) {
-          kartu.push(
-            <MetricCard
-              key="biaya"
-              label={hasil.is_prabayar ? "Estimasi Nilai Konsumsi" : "Estimasi Tagihan"}
-              value={formatRupiah(hasil.estimasi_rp)}
-            />
-          );
-        }
-        // "Konsumsi per Penghuni" netral (bukan spesifik biaya/lingkungan) — selalu tampil.
-        kartu.push(
-          <MetricCard key="konsumsi" label="Konsumsi per Penghuni" value={formatKwh(hasil.kwh_per_org)} />
-        );
-        if (tampilLingkungan) {
-          kartu.push(
-            <MetricCard key="emisi" label="Emisi CO₂" value={`${hasil.emisi_sebelum.emisi_kg_bulan} kg/bln`} />
-          );
-        }
-        const gridClass =
-          kartu.length === 3 ? "sm:grid-cols-3" : kartu.length === 2 ? "sm:grid-cols-2" : "sm:grid-cols-1";
-        return <div className={`grid gap-3 ${gridClass}`}>{kartu}</div>;
-      })()}
+          {/* 5. Kartu metrik — urutan & tampilan sama seperti sebelumnya,
+              kecuali "Hemat Biaya/Bulan" yang sekarang dilengkapi aksi
+              konkret, tanda minus, dan disclaimer (khusus pascabayar). */}
+          {(() => {
+            const kartu: React.ReactNode[] = [];
+            if (tampilBiaya) {
+              kartu.push(
+                <MetricCard key="biaya" label={labelEstimasi} value={formatRupiah(hasil.estimasi_rp)} />
+              );
+            }
+            kartu.push(
+              <MetricCard key="konsumsi" label="Konsumsi per Penghuni" value={formatKwh(hasil.kwh_per_org)} />
+            );
+            if (tampilLingkungan) {
+              kartu.push(
+                <MetricCard key="emisi" label="Emisi CO₂" value={`${hasil.emisi_sebelum.emisi_kg_bulan} kg/bln`} />
+              );
+            }
+            const gridClass =
+              kartu.length === 3 ? "sm:grid-cols-3" : kartu.length === 2 ? "sm:grid-cols-2" : "sm:grid-cols-1";
+            return <div className={`grid gap-3 ${gridClass}`}>{kartu}</div>;
+          })()}
 
-      {opt.aktif && (() => {
-        const kartu: React.ReactNode[] = [];
-        if (tampilBiaya) {
-          kartu.push(
-            hasil.is_prabayar ? (
-              <MetricCard key="token-hemat" label="Token Dihemat/Bulan" value={formatKwh(opt.hemat_kwh)} />
-            ) : (
-              <MetricCard
-                key="biaya-hemat"
-                label="Hemat Biaya/Bulan"
-                value={`${formatRupiah(opt.hemat_rp)} (${formatPersen(opt.persen_hemat_rp)})`}
-              />
-            )
-          );
-        }
-        if (tampilLingkungan) {
-          kartu.push(
-            <MetricCard
-              key="kurang-emisi"
-              label="Kurang Emisi/Bulan"
-              value={`${opt.hemat_emisi_kg} kg (-${formatPersen(opt.persen_hemat_emisi)})`}
-            />
-          );
-          kartu.push(
-            <MetricCard key="emisi-akhir" label="Emisi Setelah Optimasi" value={`${opt.emisi_akhir} kg/bln`} />
-          );
-        }
-        if (kartu.length === 0) return null;
-        const gridClass =
-          kartu.length === 3 ? "sm:grid-cols-3" : kartu.length === 2 ? "sm:grid-cols-2" : "sm:grid-cols-1";
-        return <div className={`grid gap-3 ${gridClass}`}>{kartu}</div>;
-      })()}
+          {opt.aktif && (() => {
+            const kartu: React.ReactNode[] = [];
+            if (tampilBiaya) {
+              kartu.push(
+                hasil.is_prabayar ? (
+                  <MetricCard key="token-hemat" label="Token Dihemat/Bulan" value={formatKwh(opt.hemat_kwh)} />
+                ) : (
+                  <div
+                    key="biaya-hemat"
+                    className="rounded-lg border border-graphite-700 bg-graphite-800/50 px-4 py-3"
+                  >
+                    <p className="text-xs uppercase tracking-wide text-cream-dim">Hemat Biaya/Bulan</p>
+                    {namaAlatKurangi && (
+                      <p className="mt-1 text-xs text-cream-dim/80">Kurangi {namaAlatKurangi}</p>
+                    )}
+                    <p className="mt-1 font-mono text-lg text-cream">
+                      {formatRupiah(opt.hemat_rp)} (-{formatPersen(opt.persen_hemat_rp)})
+                    </p>
+                    <p className="mt-1.5 text-[11px] leading-snug text-cream-dim/60">
+                      ⚠️ Estimasi — cara PLN menghitung tagihan riil bisa sedikit berbeda dari
+                      perhitungan ini.
+                    </p>
+                  </div>
+                )
+              );
+            }
+            if (tampilLingkungan) {
+              kartu.push(
+                <MetricCard
+                  key="kurang-emisi"
+                  label="Kurang Emisi/Bulan"
+                  value={`${opt.hemat_emisi_kg} kg (-${formatPersen(opt.persen_hemat_emisi)})`}
+                />
+              );
+              kartu.push(
+                <MetricCard key="emisi-akhir" label="Emisi Setelah Optimasi" value={`${opt.emisi_akhir} kg/bln`} />
+              );
+            }
+            if (kartu.length === 0) return null;
+            const gridClass =
+              kartu.length === 3 ? "sm:grid-cols-3" : kartu.length === 2 ? "sm:grid-cols-2" : "sm:grid-cols-1";
+            return <div className={`grid gap-3 ${gridClass}`}>{kartu}</div>;
+          })()}
 
-      {tampilBiaya && (
-      <Expandable title={hasil.is_prabayar ? "📄 Rincian Token (detail teknis)" : "📄 Rincian Tagihan (detail teknis)"}>
-        <div className="space-y-2">
-          <StrukRow label="Golongan daya" value={hasil.golongan_daya} />
-          <StrukRow label="Tarif" value={`${formatRupiah(hasil.tarif_digunakan)}/kWh`} />
-          <StrukRow label="Biaya pemakaian" value={formatRupiah(hasil.biaya_pemakaian)} />
-          <StrukRow label="PBJT (2,4%)" value={formatRupiah(hasil.biaya_pbjt)} />
-          <StrukRow label="Biaya Materai" value={formatRupiah(hasil.biaya_materai)} />
-          <div className="my-2 tear-line" aria-hidden />
-          <StrukRow label="Estimasi total" value={formatRupiah(hasil.estimasi_rp)} bold />
-
-          {hasil.is_prabayar && hasil.token_context && (
-            <>
-              <div className="my-3 tear-line" aria-hidden />
-              <StrukRow
-                label="Tanggal pembelian"
-                value={formatTanggalIndo(hasil.token_context.tanggal_pembelian)}
-              />
-              <StrukRow label="Hari berjalan" value={`${hasil.token_context.hari_berjalan} hari`} />
-              <StrukRow label="Saldo awal periode" value={formatKwh(hasil.token_context.saldo_awal)} />
-              <StrukRow label="Sisa saat ini" value={formatKwh(hasil.token_context.sisa_saat_ini)} />
-              <StrukRow
-                label="Token terpakai aktual"
-                value={formatKwh(hasil.token_context.token_terpakai_aktual)}
-                bold
-              />
-              <StrukRow
-                label="Estimasi dari peralatan"
-                value={formatKwh(hasil.token_context.estimasi_terpakai_perangkat)}
-              />
-            </>
-          )}
-        </div>
-        <p className="mt-4 text-xs leading-relaxed text-cream-dim/70">
-          ⚠️{" "}
-          {hasil.is_prabayar
-            ? "Estimasi nilai konsumsi ini bersifat prediktif — dihitung dari tarif resmi PLN dan spesifikasi/durasi pakai peralatan yang Anda masukkan, bukan dari pembacaan meteran langsung. Nominal aktual bisa berbeda dari saldo token sesungguhnya, dan estimasi ini belum memperhitungkan biaya admin pembelian token (besarannya tergantung channel pembayaran yang Anda gunakan)."
-            : "Estimasi tagihan ini bersifat prediktif — dihitung dari tarif resmi PLN dan spesifikasi/durasi pakai peralatan yang Anda masukkan, bukan dari pembacaan meteran langsung. Nominal aktual di rekening/struk bisa berbeda, dan estimasi ini belum memperhitungkan biaya admin (besarannya tergantung channel pembayaran yang Anda gunakan)."}
-        </p>
-      </Expandable>
-      )}
+          {/* 6. Klasifikasi Peralatan — judul diganti jadi nama standar
+              metodenya (DSM), struktur/isi sama, ditambah penjelasan
+              awam di paling bawah (dibatasi tear-line). */}
+          <Expandable title="Klasifikasi Perangkat Berdasarkan DSM (Demand Side Management)">
+            <ul className="space-y-1.5 text-sm">
+              {hasil.hasil_dsm.map((a, i) => (
+                <li key={i} className="flex items-center gap-2">
+                  <span className={a.label_dsm === "Fleksibel" ? "text-teal" : "text-red"}>●</span>
+                  <span className="text-cream">{a.nama}</span>
+                  <span className="text-cream-dim">— {a.label_dsm}</span>
+                </li>
+              ))}
+            </ul>
+            <div className="my-4 tear-line" aria-hidden />
+            <p className="text-xs leading-relaxed text-cream-dim/70">
+              <span className="text-teal">● Fleksibel</span>: alat yang durasi/jam pemakaiannya bisa
+              dikurangi tanpa mengganggu kebutuhan pokok (mis. AC, mesin cuci) — cara hemat: kurangi
+              jam pakainya.{" "}
+              <span className="text-red">● Tidak Fleksibel</span>: alat yang harus menyala sesuai
+              kebutuhan dan sulit dikurangi durasinya (mis. kulkas, router) — cara hemat: ganti
+              dengan model yang lebih hemat energi, bukan mengurangi jam pakainya.
+            </p>
+          </Expandable>
         </>
       )}
     </div>
   );
 }
-

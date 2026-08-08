@@ -189,12 +189,12 @@ def optimasi(ringkasan_dsm : dict,
     zona_awal = profil_ike(ike_awal)
 
     # ── Cek apakah optimizer perlu berjalan ───────────────────────────────────
-    # SKIP : IKE sudah < batas Efisien (zona Sangat Efisien / Efisien)
-    # AKTIF: IKE >= batas Efisien
-    #   → Cukup Efisien : coba turunkan ke Efisien
-    #   → Boros         : coba turunkan ke Efisien, fallback Cukup Efisien
-    #   → Sangat Boros  : coba turunkan ke Efisien, fallback Cukup Efisien
-    if ike_awal < BATAS_EFISIEN:
+    # SKIP : IKE masih di zona Sangat Efisien / Efisien / Cukup Efisien
+    #        (IKE < batas Cukup Efisien) -- zona ini dianggap sudah cukup
+    #        baik, optimizer tidak perlu memaksa turun lebih jauh.
+    # AKTIF: IKE >= batas Cukup Efisien (masuk zona Boros / Sangat Boros)
+    #   → coba turunkan ke Efisien, fallback ke Cukup Efisien kalau gagal.
+    if ike_awal < BATAS_CUKUP_EFISIEN:
         return {
             "aktif"             : False,
             "status"            : "sudah_efisien",

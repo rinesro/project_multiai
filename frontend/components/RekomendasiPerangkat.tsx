@@ -1,6 +1,6 @@
 "use client";
 
-import { formatKwh, formatRupiah } from "@/lib/format";
+import { formatKwh, formatPersen, formatRupiah } from "@/lib/format";
 import type { HasilDsmItem, HasilOptimasi } from "@/lib/types";
 
 interface PerangkatGanti {
@@ -56,10 +56,14 @@ export function RekomendasiPerangkat({
   hasilDsm,
   hasilOpt,
   isPrabayar,
+  tampilBiaya,
+  tampilLingkungan,
 }: {
   hasilDsm: HasilDsmItem[];
   hasilOpt: HasilOptimasi;
   isPrabayar: boolean;
+  tampilBiaya: boolean;
+  tampilLingkungan: boolean;
 }) {
   const { ganti, kurangi } = bucketRekomendasi(hasilDsm, hasilOpt);
 
@@ -86,6 +90,33 @@ export function RekomendasiPerangkat({
               </li>
             ))}
           </ul>
+
+          {/* Ringkasan agregat — total dari SELURUH langkah pengurangan
+              di atas, dipakai angka hasil_optimasi langsung (bukan
+              dijumlah manual dari tiap baris) supaya konsisten dengan
+              kartu metrik "Hemat Biaya/Bulan" di bawah nanti — dua-duanya
+              sama-sama bersumber dari hasil_optimasi.hemat_rp/dst. */}
+          {(tampilBiaya || tampilLingkungan) && (
+            <div className="mt-3 rounded-lg border border-teal/30 bg-teal-dim px-4 py-3">
+              <p className="text-xs uppercase tracking-wide text-cream-dim">
+                Estimasi Total Penghematan
+              </p>
+              <div className="mt-1.5 flex flex-wrap gap-x-5 gap-y-1 font-mono text-sm text-teal">
+                {tampilBiaya && (
+                  <span>
+                    {isPrabayar
+                      ? `${formatKwh(hasilOpt.hemat_kwh)} token/bulan`
+                      : `${formatRupiah(hasilOpt.hemat_rp)} (-${formatPersen(hasilOpt.persen_hemat_rp)})/bulan`}
+                  </span>
+                )}
+                {tampilLingkungan && (
+                  <span>
+                    -{hasilOpt.hemat_emisi_kg} kgCO₂ (-{formatPersen(hasilOpt.persen_hemat_emisi)})/bulan
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
