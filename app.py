@@ -46,7 +46,7 @@ _sys.path.insert(0, str(_Path(__file__).parent / "backend"))
 # ── Import modul internal ─────────────────────────────────────────────────────
 # Semua konstanta regulasi & rumus kalkulasi dasar tinggal di
 # core/kalkulasi.py sebagai satu sumber kebenaran — dipakai bersama oleh
-# app.py (Lapis 1), models/dsm_classifier.py, dan optimizer/brute_force.py.
+# app.py (Lapis 1), models/dsm_classifier.py, dan optimizer/greedy_optimizer.py.
 #
 # CATATAN DESAIN: Komponen KNN Role Model Recommender yang sebelumnya ada
 # di Lapis 2 SENGAJA DIHILANGKAN dari sistem. Alasannya: KNN butuh basis
@@ -69,7 +69,7 @@ from core.kalkulasi import (
 )
 from action_analist.ike_profiler import profil_ike
 from models.dsm_classifier   import DSMClassifier
-from optimizer.brute_force   import optimasi
+from optimizer.greedy_optimizer   import optimasi
 
 # KATEGORI_OPTIONS = alias lokal dari core.kalkulasi.KATEGORI_ALAT (sumber
 # kebenaran tunggal) — supaya tidak ada 3 salinan daftar kategori yang

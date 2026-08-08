@@ -39,7 +39,7 @@ def _bersihkan_markdown(teks: str) -> str:
 # ============================================================
 # HELPER FORMAT HASIL OPTIMASI — token (prabayar) vs Rp (pascabayar)
 # ============================================================
-# Optimizer (optimizer/brute_force.py) TIDAK berubah — tetap menghitung
+# Optimizer (optimizer/greedy_optimizer.py) TIDAK berubah — tetap menghitung
 # hemat_kwh & hemat_rp sekaligus untuk kedua jenis meteran. Yang beda
 # cuma cara MENAMPILKANNYA. Dipusatkan di sini supaya narasi Gemini dan
 # render UI (Streamlit maupun frontend Next.js lewat response API)

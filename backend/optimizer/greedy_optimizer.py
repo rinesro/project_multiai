@@ -1,5 +1,5 @@
 """
-optimizer/brute_force.py
+optimizer/greedy_optimizer.py
 =========================
 Brute Force Optimizer untuk EnergiCerdas AI — Lapis 3.
 

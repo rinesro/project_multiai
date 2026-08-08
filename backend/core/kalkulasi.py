@@ -6,7 +6,7 @@ regulasi dan rumus kalkulasi dasar yang dipakai di lebih dari satu layer.
 
 Sebelum modul ini dibuat, konstanta dan rumus yang sama ditulis ulang
 secara terpisah di app.py, models/dsm_classifier.py, models/knn_recommender.py,
-optimizer/brute_force.py, dan train_knn.py — berisiko saling tidak sinkron
+optimizer/greedy_optimizer.py, dan train_knn.py — berisiko saling tidak sinkron
 kalau salah satu diubah tanpa mengubah yang lain.
 
 Prinsip pemakaian:

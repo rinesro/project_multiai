@@ -221,7 +221,7 @@ class DSMClassifier:
     def ringkasan_dsm(self, hasil_prediksi: list) -> dict:
         """
         Memisahkan peralatan berdasarkan label DSM.
-        Output dikirim ke optimizer/brute_force.py.
+        Output dikirim ke optimizer/greedy_optimizer.py.
 
         Returns:
             dict:

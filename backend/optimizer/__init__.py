@@ -1,2 +1,2 @@
-from .brute_force import optimasi
+from .greedy_optimizer import optimasi
 __all__ = ['optimasi']

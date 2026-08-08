@@ -88,7 +88,7 @@ def tes_impor():
     )
     from services.ingestion import DataIngestionValidatorAgent
     from models.dsm_classifier import DSMClassifier
-    from optimizer.brute_force import optimasi
+    from optimizer.greedy_optimizer import optimasi
     assert BATAS_TOLERANSI_ANOMALI == 0.29, "Ambang toleransi harusnya 0.29"
 
 
@@ -328,7 +328,34 @@ cek("Status 'data_tidak_konsisten' (saldo tidak masuk akal)", tes_status_data_ti
 cek("Validasi jam > 24 ditolak (422)", tes_validasi_24_jam)
 cek("Kombinasi is_prabayar/token_context tidak konsisten ditolak (422)", tes_kombinasi_tidak_konsisten_ditolak)
 cek("profil_ike() nilai ekstrem tetap 'Sangat Boros' (regresi bug plateau)", tes_profil_ike_nilai_ekstrem)
+def tes_optimizer_tidak_aktif_untuk_cukup_efisien():
+    """
+    Regresi khusus: optimizer sempat aktif untuk zona 'Cukup Efisien'
+    (harusnya cuma Boros/Sangat Boros) -- ambang aktivasi salah pakai
+    BATAS_EFISIEN, seharusnya BATAS_CUKUP_EFISIEN.
+    """
+    from optimizer.greedy_optimizer import BATAS_EFISIEN, BATAS_CUKUP_EFISIEN
+    ike_cukup_efisien = (BATAS_EFISIEN + BATAS_CUKUP_EFISIEN) / 2
+    r = _client.post("/api/analisis", json={
+        "daya_va": 1300, "is_prabayar": False,
+        "luas_rumah": round(180 / ike_cukup_efisien, 2), "penghuni": 3,
+        "tagihan_asli": 270000,
+        "daftar_alat": [
+            {"nama": "AC", "kategori": "Pendingin", "tegangan": 220,
+             "arus": 3.41, "jam": 8, "jumlah": 1},
+        ],
+        "intent_user": ["Biaya"],
+    })
+    assert r.status_code == 200, f"status {r.status_code}: {r.text[:200]}"
+    d = r.json()
+    assert d["label_ike"] == "Cukup Efisien", f"Setup tes salah, dapat {d['label_ike']}"
+    assert d["hasil_optimasi"]["aktif"] is False, (
+        "Optimizer TIDAK BOLEH aktif untuk zona Cukup Efisien"
+    )
+
+
 cek("Optimizer brute force aktif untuk IKE tinggi", tes_optimizer_aktif_untuk_ike_tinggi)
+cek("Optimizer TIDAK aktif untuk zona Cukup Efisien (regresi)", tes_optimizer_tidak_aktif_untuk_cukup_efisien)
 
 _client.__exit__(None, None, None)
 

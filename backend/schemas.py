@@ -7,7 +7,7 @@ GET /api/referensi — kontrak API yang disepakati di Tahap 1.
 Field response (hasil_dsm, hasil_optimasi) sengaja bertipe longgar
 (list[dict] / dict) alih-alih di-strict-kan jadi nested model —
 supaya tidak menduplikasi/fabrikasi definisi field di dua tempat
-(di sini dan di models/dsm_classifier.py, optimizer/brute_force.py).
+(di sini dan di models/dsm_classifier.py, optimizer/greedy_optimizer.py).
 Kalau frontend nanti butuh tipe yang lebih ketat, definisikan nested
 model di sini SETELAH field-nya diverifikasi dari source asli.
 """
@@ -109,7 +109,7 @@ class AnalisisResponse(BaseModel):
     # Lapis 2 — DSM classifier (list of dict, lihat models/dsm_classifier.py)
     hasil_dsm: list[dict]
 
-    # Lapis 3 — brute force optimizer (lihat optimizer/brute_force.py)
+    # Lapis 3 — brute force optimizer (lihat optimizer/greedy_optimizer.py)
     hasil_optimasi: dict
 
     # Narasi Gemini
