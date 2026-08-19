@@ -1,32 +1,27 @@
-# ============================================================
-# .env — JANGAN PERNAH COMMIT FILE INI. Berisi API key/secret asli.
-# Kejadian minggu ini (Gemini API key ke-leak) persis karena file
-# ini sempat tidak terlindungi .gitignore sebelum di-push ke GitHub.
-# ============================================================
 backend/.env
 frontend/.env.local
 .env
 .env.local
 .env.*.local
 
-# Python
+ 
 __pycache__/
 *.pyc
 *.pyo
 .Python
 *.egg-info/
 
-# Node / Next.js
+ 
 frontend/node_modules/
 frontend/.next/
 frontend/out/
 *.tsbuildinfo
 
-# OS / editor
+ 
 .DS_Store
 .vscode/
 .idea/
 
-# Vercel
+ 
 .vercel
 .streamlit/

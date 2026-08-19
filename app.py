@@ -8,57 +8,36 @@ from datetime import date
 
 warnings.filterwarnings("ignore")
 
-# core/, action_analist/, services/, models/, optimizer/, data/ sekarang ada DI
-# DALAM backend/ (dipindah supaya Vercel Services bisa bundling backend
-# sebagai satu unit mandiri — lihat backend/main.py untuk detail
-# alasannya). app.py (Streamlit) tetap butuh modul yang sama, jadi
-# backend/ ditambahkan ke sys.path di sini juga.
 _sys.path.insert(0, str(_Path(__file__).parent))
 _sys.path.insert(0, str(_Path(__file__).parent / "backend"))
 
-# ============================================================
-# REFERENSI REGULASI YANG DIGUNAKAN
-# ============================================================
-# [1] TARIF PLN
-#     Penetapan Penyesuaian Tarif Tenaga Listrik (Tariff Adjustment)
-#     Periode April–Juni 2026, PT PLN (Persero)
-#
-# [2] FAKTOR EMISI GRK
-#     Faktor Emisi GRK Sistem Ketenagalistrikan Tahun 2019
-#     Kementerian ESDM RI — Grid Jamali (DKI Jakarta)
-#     Operating Margin (OM) = 0,80 kgCO₂/kWh
-#
-# [3] PBJT TENAGA LISTRIK JAKARTA
-#     Perda DKI Jakarta No. 1 Tahun 2024
-#     Rumah tangga: 2,4%
-#     Sumber: https://dpp.jakarta.go.id/berita/sobat-pajak-ini-dia-
-#             segala-hal-tentang-pbjt-tenaga-listrik
-#
-# [4] REKENING MINIMUM / BIAYA BEBAN
-#     Rumus PLN: RM1 = 40 jam × daya (kVA) × tarif (Rp/kWh)
-#     Berlaku hanya pelanggan pascabayar.
-#
-# [5] IKE RUMAH TANGGA
-#     Pedoman Konservasi Energi Depdiknas RI
-#     Satuan: kWh/m²/bulan, dibedakan ber-AC dan tidak ber-AC.
-# ============================================================
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
 
-# ── Import modul internal ─────────────────────────────────────────────────────
-# Semua konstanta regulasi & rumus kalkulasi dasar tinggal di
-# core/kalkulasi.py sebagai satu sumber kebenaran — dipakai bersama oleh
-# app.py (Lapis 1), models/dsm_classifier.py, dan optimizer/greedy_optimizer.py.
-#
-# CATATAN DESAIN: Komponen KNN Role Model Recommender yang sebelumnya ada
-# di Lapis 2 SENGAJA DIHILANGKAN dari sistem. Alasannya: KNN butuh basis
-# data rumah tangga riil (luas, penghuni, tagihan, emisi) sebagai bahan
-# perbandingan "role model", namun setelah ditelusuri tidak ditemukan
-# dataset rumah tangga Indonesia yang terbuka dan gratis dengan granularitas
-# tersebut — data BPS (SUSENAS) yang paling mendekati bersifat berbayar
-# (PP No.13/2024 tentang tarif diseminasi data mikro). Menggunakan data
-# sintetis sebagai basis perbandingan "rumah tangga lain" dinilai kurang
-# dapat dipertanggungjawabkan dibanding tetap fokus pada rekomendasi
-# berbasis data milik pengguna sendiri (brute force di Lapis 3), sehingga
-# komponen KNN dihapus dari arsitektur final.
 from core.kalkulasi import (
     get_tarif, hitung_biaya_materai, hitung_watt, hitung_kwh_alat,
     hitung_tagihan, hitung_emisi, hitung_ike, hitung_kwh_per_org,
@@ -71,40 +50,33 @@ from action_analist.ike_profiler import profil_ike
 from models.dsm_classifier   import DSMClassifier
 from optimizer.greedy_optimizer   import optimasi
 
-# KATEGORI_OPTIONS = alias lokal dari core.kalkulasi.KATEGORI_ALAT (sumber
-# kebenaran tunggal) — supaya tidak ada 3 salinan daftar kategori yang
-# berisiko tidak sinkron (app.py, dsm_classifier.py, backend/schemas.py).
+
 KATEGORI_OPTIONS = KATEGORI_ALAT
 
 
-# ============================================================
-# DATA INGESTION & VALIDATOR AGENT — LAPIS 1
-# Kelas ini sekarang ada di services/ingestion.py — dipakai bersama
-# oleh app.py (Streamlit) dan backend FastAPI, supaya logika
-# kalkulasi/validasi tidak ditulis dua kali di dua tempat berbeda.
-# ============================================================
+ 
+ 
+ 
 
 from services.ingestion import DataIngestionValidatorAgent
 
 
-# ============================================================
-# LOAD MODEL
-# ============================================================
+ 
+ 
+ 
 
 @st.cache_resource(show_spinner="Memuat model DSM Classifier...")
 def load_dsm():
     return DSMClassifier()
 
 
-# ============================================================
-# GEN AI — GEMINI
-# ============================================================
+ 
+ 
+ 
 
-# ============================================================
-# HELPER FORMAT HASIL OPTIMASI & NARASI GEMINI
-# Sekarang ada di services/narasi.py — dipakai bersama app.py
-# (Streamlit) dan backend FastAPI.
-# ============================================================
+ 
+ 
+ 
 
 from services.narasi import (
     generate_gemini_narasi,
@@ -113,9 +85,9 @@ from services.narasi import (
 )
 
 
-# ============================================================
-# KONFIGURASI HALAMAN & SESSION STATE
-# ============================================================
+ 
+ 
+ 
 
 st.set_page_config(
     page_title="EnergiCerdas AI",
@@ -123,12 +95,12 @@ st.set_page_config(
     layout="wide"
 )
 
-# Load model sekali
+ 
 dsm_clf = load_dsm()
 
-# ============================================================
-# SIDEBAR — API KEY
-# ============================================================
+ 
+ 
+ 
 
 with st.sidebar:
     st.header("⚙️ Konfigurasi")
@@ -152,9 +124,9 @@ with st.sidebar:
         "Gen AI: Gemini 2.5 Flash"
     )
 
-# ============================================================
-# JUDUL
-# ============================================================
+ 
+ 
+ 
 
 st.title("⚡ EnergiCerdas AI")
 st.markdown(
@@ -162,12 +134,9 @@ st.markdown(
     "berbasis standar regulasi resmi Indonesia."
 )
 
-# ============================================================
-# INPUT 1 — DAYA & METERAN
-# Ditaruh SEBELUM profil rumah tangga karena field riwayat
-# pemakaian di Section 2 bercabang tergantung jenis meteran
-# (prabayar butuh field berbeda dari pascabayar).
-# ============================================================
+ 
+ 
+ 
 
 st.header("1. Informasi Daya & Meteran")
 c4, c5 = st.columns(2)
@@ -175,7 +144,7 @@ with c4:
     daya_va = st.selectbox(
         "Daya Tersambung PLN",
         options=GOLONGAN_DAYA,
-        index=2,  # default 1.300 VA — geser dari index=1 karena 450VA ditambah di depan list
+        index=2,  
         help="Tertera di meteran atau rekening listrik Anda"
     )
 with c5:
@@ -186,12 +155,7 @@ with c5:
     )
     is_prabayar = (jenis_meteran == "Prabayar (Token)")
 
-# Toggle subsidi CUMA relevan untuk 900 VA -- 450 VA di kenyataan SELALU
-# bersubsidi (tidak ada tarif "450 VA non-subsidi" sama sekali, lihat
-# TARIF_DAYA_RENDAH di core/kalkulasi.py: nilainya flat, bukan dict
-# {subsidi, non_subsidi} seperti 900VA). Menampilkan toggle untuk
-# 450VA jadi menyesatkan -- kelihatan ada pilihan yang berpengaruh,
-# padahal hasilnya selalu sama.
+
 if daya_va == 900:
     is_subsidi = st.checkbox(
         "Pelanggan bersubsidi",
@@ -209,14 +173,14 @@ st.info(
     + ("" if is_prabayar else " · Bea Materai Rp10.000 kalau tagihan >Rp5 juta")
 )
 
-# ============================================================
-# INPUT 2 — PROFIL RUMAH TANGGA & RIWAYAT PEMAKAIAN
-# Field riwayat pemakaian BERCABANG tergantung jenis meteran:
-#   - Pascabayar : tagihan bulan lalu (Rp), siklus tetap ~30 hari.
-#   - Prabayar   : saldo token, karena siklus top-up TIDAK tetap
-#                  30 hari — dipakai untuk deteksi kebocoran arus
-#                  lewat selisih saldo, bukan lewat tagihan Rp.
-# ============================================================
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
 
 st.header("2. Profil Rumah Tangga & Riwayat Pemakaian")
 c1, c2 = st.columns(2)
@@ -279,9 +243,9 @@ else:
     )
     token_context = None
 
-# ============================================================
-# INPUT 3 — PREFERENSI OPTIMASI
-# ============================================================
+ 
+ 
+ 
 
 st.header("3. Preferensi Optimasi")
 intent_user = st.multiselect(
@@ -290,19 +254,19 @@ intent_user = st.multiselect(
     default=["Biaya"],
 )
 
-# ============================================================
-# INPUT 4 — INVENTARISASI PERALATAN LISTRIK
-# Form dinamis dengan session state (mengikuti pola app.py lama)
-# ============================================================
+ 
+ 
+ 
+ 
 
 st.header("4. Inventarisasi Peralatan Listrik")
 st.caption("P = V × I — daya dihitung otomatis dari tegangan dan arus.")
 
-# Inisialisasi session state
+ 
 if 'daftar_perangkat_saved' not in st.session_state:
     st.session_state.daftar_perangkat_saved = []
 
-# Tampilkan peralatan yang sudah disimpan
+ 
 if st.session_state.daftar_perangkat_saved:
     st.write("**Peralatan tersimpan:**")
     for i, alat in enumerate(st.session_state.daftar_perangkat_saved):
@@ -333,7 +297,7 @@ else:
 
 st.divider()
 
-# Form tambah peralatan baru
+ 
 with st.form("form_tambah_perangkat", clear_on_submit=True):
     st.subheader("➕ Tambah Peralatan Baru")
     col1, col2 = st.columns(2)
@@ -392,9 +356,9 @@ with st.form("form_tambah_perangkat", clear_on_submit=True):
         })
         st.rerun()
 
-# ============================================================
-# TOMBOL ANALISIS
-# ============================================================
+ 
+ 
+ 
 
 st.divider()
 if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
@@ -410,7 +374,7 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
     daftar_perangkat = st.session_state.daftar_perangkat_saved
 
     with st.spinner("⚙️ Lapis 1 — Kalkulasi & deteksi anomali..."):
-        # ── LAPIS 1: Kalkulasi & Anomali ─────────────────────────────────────
+         
         agent   = DataIngestionValidatorAgent(int(daya_va), is_prabayar, is_subsidi)
         payload = agent.proses_data(
             luas_rumah, penghuni, daftar_perangkat,
@@ -419,23 +383,23 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
         )
 
     with st.spinner("🧠 Lapis 2 — Klasifikasi IKE & DSM..."):
-        # ── LAPIS 2a: Fuzzy IKE ───────────────────────────────────────────────
-        # ike sudah dihitung di Lapis 1 (payload) — profil_ike() tinggal
-        # menerima, tidak menghitung ulang. Sejak perombakan kalibrasi
-        # 5-lapis, profil_ike() cuma butuh IKE saja — ada_ac (dulu dipakai
-        # untuk skema ber-AC/tidak) sudah dihapus total dari sistem, tidak
-        # dihitung lagi di sini karena tidak dipakai di mana pun lagi.
+         
+         
+         
+         
+         
+         
         label_ike = profil_ike(payload['ike'])
 
-        # ── LAPIS 2b: DSM Classifier ──────────────────────────────────────────
-        # Pakai payload['alat_valid'] (hasil Lapis 1, sudah ada watt/kwh_bulan/
-        # jumlah) — BUKAN daftar_perangkat mentah, supaya kWh tidak dihitung
-        # ulang dan konsisten dengan angka yang ditampilkan ke user.
+         
+         
+         
+         
         hasil_dsm  = dsm_clf.prediksi_batch(payload['alat_valid'])
         ringkasan  = dsm_clf.ringkasan_dsm(hasil_dsm)
 
     with st.spinner("⚡ Lapis 3 — Optimasi jadwal penggunaan (Brute Force IKE)..."):
-        # ── LAPIS 3: Brute Force Optimizer ───────────────────────────────────
+         
         hasil_opt = optimasi(
             ringkasan_dsm = ringkasan,
             luas_m2       = float(luas_rumah),
@@ -447,13 +411,13 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
             emisi_awal    = payload['emisi_sebelum']['emisi_kg_bulan'],
         )
 
-        # Hitung emisi sesudah optimasi
+         
         if hasil_opt['aktif']:
             emisi_sesudah = hitung_emisi(hasil_opt['total_kwh_akhir'])
             hasil_opt['emisi_sesudah'] = emisi_sesudah
 
     with st.spinner("✍️ Membangkitkan narasi rekomendasi (Gemini)..."):
-        # ── GEN AI: Gemini ────────────────────────────────────────────────────
+         
         narasi = generate_gemini_narasi(
             api_key     = gemini_api_key,
             label_ike   = label_ike,
@@ -463,16 +427,16 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
             intent_user = intent_user,
         )
 
-    # ============================================================
-    # RENDER HASIL
-    # ============================================================
+     
+     
+     
     st.divider()
     st.subheader("📊 Hasil Analisis")
 
-    # ── Status Anomali ───────────────────────────────────────────────────────
-    # 5 kemungkinan status (2 untuk pascabayar, 5 untuk prabayar) —
-    # pesan_anomali sudah lengkap dari action_analist/anomaly_evaluator.py, tidak
-    # perlu disusun ulang di sini.
+     
+     
+     
+     
     _RENDER_ANOMALI = {
         "anomali"             : (st.error,   "⚠️ "),
         "normal"               : (st.success, "✅ "),
@@ -485,11 +449,11 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
     )
     _render_fn(f"{_prefix}{payload['pesan_anomali']}")
 
-    # Status yang memblokir dashboard & rekomendasi sampai user perbaiki
-    # input dan analisis ulang. Awalnya "data_belum_cukup" dikecualikan
-    # (dianggap bukan kesalahan input, cuma soal waktu) — tapi setelah
-    # dicoba langsung, diputuskan tetap diblokir juga supaya konsisten:
-    # H+1 adalah syarat wajib tanpa kecuali, bukan sekadar rekomendasi.
+     
+     
+     
+     
+     
     _STATUS_BLOKIR_DASHBOARD = {
         "tanggal_tidak_valid", "data_tidak_konsisten", "data_belum_cukup",
     }
@@ -502,12 +466,12 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
 
     if not dashboard_diblokir:
 
-        # ── KONTEN UTAMA: narasi + rekomendasi aksi ───────────────────────────────
-        # Dipindah ke ATAS (sebelumnya di paling bawah) — ini yang dibaca duluan
-        # oleh user awam, bukan pelengkap. Narasi Gemini murni strategi/motivasi
-        # (tidak menyebut nama alat), disusul daftar aksi konkret yang dihitung
-        # deterministik oleh kode lewat bucket_rekomendasi() — bukan LLM — supaya
-        # nama alat & angka teknis selalu presisi.
+         
+         
+         
+         
+         
+         
         st.subheader("💡 Rekomendasi EnergiCerdas AI")
         st.markdown(narasi)
 
@@ -531,13 +495,13 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
 
         st.divider()
 
-        # ── DETAIL PENDUKUNG: angka & rincian teknis ──────────────────────────────
+         
         st.caption("Detail teknis di bawah ini bersifat opsional — pendukung angka di atas.")
 
-        # ── Metrik utama ──────────────────────────────────────────────────────────
-        # Array kosong (user tidak pilih fokus spesifik) dianggap "tampilkan
-        # keduanya" — konsisten dengan instruksi_fokus di backend (services/
-        # narasi.py) dan perilaku yang sama di frontend Next.js.
+         
+         
+         
+         
         tampil_biaya      = not intent_user or 'Biaya' in intent_user
         tampil_lingkungan = not intent_user or 'Lingkungan' in intent_user
 
@@ -559,8 +523,8 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
                 "Emisi CO₂", f"{payload['emisi_sebelum']['emisi_kg_bulan']} kg/bln"
             )
 
-        # ── Hasil optimasi (jika aktif) — angka ringkasan saja, daftar per-alat
-        # sudah ditampilkan di bagian rekomendasi atas ────────────────────────────
+         
+         
         if hasil_opt['aktif'] and hasil_opt['langkah']:
             st.divider()
             st.subheader("⚡ Hasil Optimasi Penggunaan")
@@ -605,7 +569,7 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
                         f"{hasil_opt['emisi_akhir']} kgCO₂/bln"
                     )
 
-        # ── DSM Classifier ────────────────────────────────────────────────────────
+         
         with st.expander("🔧 Klasifikasi Peralatan (detail teknis, opsional)"):
             for a in hasil_dsm:
                 icon = "🟢" if a['label_dsm'] == 'Fleksibel' else "🔴"
@@ -616,7 +580,7 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
                     + (" ⚠️ *fallback*" if a['metode'] == 'fallback' else "")
                 )
 
-        # ── Rincian tagihan ───────────────────────────────────────────────────────
+         
         if tampil_biaya:
             with st.expander("📄 Rincian Tagihan"):
                 st.markdown(f"""
@@ -650,7 +614,7 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
                         "tergantung channel pembayaran yang Anda gunakan)."
                     )
 
-        # ── Rincian token (khusus prabayar) ─────────────────────────────────────
+         
         if tampil_biaya and payload['is_prabayar'] and 'token_context' in payload:
             tc = payload['token_context']
             with st.expander("🔋 Rincian Token"):
@@ -673,7 +637,7 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
                     "peralatan untuk deteksi anomali di atas."
                 )
 
-        # ── Rincian emisi ─────────────────────────────────────────────────────────
+         
         if tampil_lingkungan:
             with st.expander("🌿 Rincian Emisi CO₂"):
                 e = payload['emisi_sebelum']
@@ -696,7 +660,7 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
 | Persentase reduksi | {hasil_opt['persen_hemat_emisi']}% |
             """)
 
-        # ── Rincian peralatan ─────────────────────────────────────────────────────
+         
         with st.expander("🔌 Rincian Peralatan"):
             st.dataframe(
                 pd.DataFrame(payload['alat_valid']),

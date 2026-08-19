@@ -28,11 +28,7 @@ export function previewKwhDariToken(
   return Math.round((energiRp / tarifKwh) * 100) / 100;
 }
 
-/**
- * Replika core/kalkulasi.py::hitung_hari_berjalan
- * Sengaja TIDAK di-clamp (bisa negatif kalau tanggal di masa depan) —
- * validasi & pesan error tetap tanggung jawab backend saat submit.
- */
+
 export function previewHariBerjalan(tanggalPembelian: string): number {
   const beli = new Date(tanggalPembelian + "T00:00:00");
   const hariIni = new Date();

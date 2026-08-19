@@ -29,18 +29,18 @@ if str(_BASE) not in _sys.path:
     _sys.path.insert(0, str(_BASE))
 from core.kalkulasi import hitung_watt, hitung_kwh_alat, KATEGORI_ALAT
 
-# ── Label model → label sistem ────────────────────────────────────────────────
+ 
 LABEL_MAP = {
     "Fleksibel"      : "Fleksibel",
     "Tidak Fleksibel": "Tidak Fleksibel",
 }
 
-# Kategori valid — diturunkan dari core.kalkulasi.KATEGORI_ALAT (sumber
-# kebenaran tunggal), bukan hardcode terpisah lagi. Dulu ada 2 salinan
-# (di sini dan app.py::KATEGORI_OPTIONS) yang berisiko tidak sinkron.
+ 
+ 
+ 
 KATEGORI_VALID = set(KATEGORI_ALAT)
 
-# ── Path model (relatif dari root proyek) ─────────────────────────────────────
+ 
 _PATH_MODEL   = _BASE / "data" / "dsm_lightgbm_model.pkl"
 _PATH_ENCODER = _BASE / "data" / "dsm_target_encoder.pkl"
 
@@ -76,7 +76,7 @@ class DSMClassifier:
     def pesan_error(self) -> str:
         return self._error or ""
 
-    # ── Fallback rule-based ───────────────────────────────────────────────────
+     
     _FALLBACK_MAP = {
         "Pendingin"          : "Fleksibel",
         "Pemanas"            : "Fleksibel",
@@ -94,10 +94,10 @@ class DSMClassifier:
     def _validasi_alat(self, alat: dict) -> dict:
         hasil = alat.copy()
 
-        # Pakai 'watt' yang sudah dihitung Lapis 1 (app.py) kalau tersedia
-        # di payload['alat_valid'] — tidak dihitung ulang di sini.
-        # Fallback ke core.kalkulasi kalau DSMClassifier dipanggil
-        # berdiri sendiri (mis. dari test) tanpa lewat Lapis 1 dulu.
+         
+         
+         
+         
         if 'watt' not in hasil:
             hasil['watt'] = hitung_watt(
                 alat.get('tegangan', 0), alat.get('arus', 0)
@@ -153,12 +153,12 @@ class DSMClassifier:
                 rows_untuk_pred.append({
                     'Kategori'    : alat['kategori'],
                     'Tegangan_V'  : alat['tegangan'],
-                    'Arus_A'      : alat['arus'],   # per-unit, bukan × jumlah
-                    'Daya_W'      : alat['watt'],   # per-unit
+                    'Arus_A'      : alat['arus'],    
+                    'Daya_W'      : alat['watt'],    
                     'Jam_Per_Hari': alat['jam'],
                 })
 
-        # Prediksi batch
+         
         prediksi_model = {}
         if self._loaded and rows_untuk_pred:
             try:
@@ -177,13 +177,13 @@ class DSMClassifier:
                 self._error    = f"Prediksi gagal: {e}"
                 prediksi_model = {}
 
-        # Rakit hasil
+         
         for i, alat in enumerate(alat_diproses):
             jumlah = alat.get('jumlah', 1)
 
-            # Pakai kwh_bulan dari Lapis 1 kalau sudah ada (sumber
-            # kebenaran) — TIDAK dihitung ulang. Fallback ke core
-            # kalau dipanggil tanpa lewat Lapis 1.
+             
+             
+             
             if 'kwh_bulan' in alat:
                 kwh_bulan = alat['kwh_bulan']
             else:

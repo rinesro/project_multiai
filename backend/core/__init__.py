@@ -12,6 +12,9 @@ from .kalkulasi import (
     get_tarif,
     hitung_watt,
     hitung_kwh_alat,
+    hitung_batas_watt_aman,
+    cek_kapasitas_watt,
+    hitung_batas_kwh_bulanan,
     hitung_tagihan,
     hitung_biaya_materai,
     hitung_emisi,
@@ -24,6 +27,8 @@ from .kalkulasi import (
     hitung_token_terpakai_aktual,
     TARIF_PER_GOLONGAN,
     TARIF_DAYA_RENDAH,
+    RASIO_WATT_AMAN,
+    RASIO_KWH_BULANAN_MAKSIMAL,
     FAKTOR_EMISI_JAMALI_OM,
     PBJT_RUMAH_TANGGA,
     GOLONGAN_DAYA,
@@ -32,11 +37,13 @@ from .kalkulasi import (
 
 __all__ = [
     "get_tarif", "hitung_watt", "hitung_kwh_alat",
+    "hitung_batas_watt_aman", "cek_kapasitas_watt", "hitung_batas_kwh_bulanan",
     "hitung_tagihan", "hitung_biaya_materai",
     "hitung_emisi", "hitung_ike", "hitung_kwh_per_org",
     "hitung_kwh_dari_token", "hitung_hari_berjalan",
     "hitung_estimasi_kwh_periode", "hitung_saldo_token_awal",
     "hitung_token_terpakai_aktual",
-    "TARIF_PER_GOLONGAN", "TARIF_DAYA_RENDAH", "FAKTOR_EMISI_JAMALI_OM", "PBJT_RUMAH_TANGGA",
+    "TARIF_PER_GOLONGAN", "TARIF_DAYA_RENDAH", "RASIO_WATT_AMAN", "RASIO_KWH_BULANAN_MAKSIMAL",
+    "FAKTOR_EMISI_JAMALI_OM", "PBJT_RUMAH_TANGGA",
     "GOLONGAN_DAYA", "KATEGORI_ALAT",
 ]

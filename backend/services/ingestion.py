@@ -139,7 +139,8 @@ class DataIngestionValidatorAgent:
             )
 
             anomali = evaluasi_anomali_prabayar(
-                token_terpakai_aktual, estimasi_terpakai, hari_berjalan
+                token_terpakai_aktual, estimasi_terpakai, hari_berjalan,
+                daya_va=self.daya_va, total_kwh=total_kwh,
             )
 
             payload["token_context"] = {

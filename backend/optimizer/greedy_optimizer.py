@@ -51,20 +51,20 @@ from core.kalkulasi import hitung_emisi as _core_hitung_emisi
 from core.kalkulasi import FAKTOR_EMISI_JAMALI_OM
 from action_analist.ike_profiler import profil_ike, MF_IKE
 
-# Ambang IKE dipakai optimizer (target ceiling akhir zona hasil optimasi)
-# -- diturunkan LANGSUNG dari MF_IKE yang sama dipakai ike_profiler.py,
-# BUKAN disalin ulang. "c" (elemen indeks ke-2 tiap tuple trapesium)
-# adalah ujung plateau zona itu -- titik di mana keanggotaan zona
-# tersebut masih penuh (1.0) sebelum mulai turun ke zona berikutnya.
-BATAS_EFISIEN       = MF_IKE["Efisien"][2]        # ~2.597 kWh/m²/bulan
-BATAS_CUKUP_EFISIEN = MF_IKE["Cukup Efisien"][2]  # ~4.396 kWh/m²/bulan
+ 
+ 
+ 
+ 
+ 
+BATAS_EFISIEN       = MF_IKE["Efisien"][2]         
+BATAS_CUKUP_EFISIEN = MF_IKE["Cukup Efisien"][2]   
 
-STEP_JAM        = 0.5    # step pengurangan jam
-MAKS_KURANG_PCT = 0.50   # maksimum pengurangan 50% dari jam asal
-MIN_JAM         = 0.5    # minimum jam operasi per peralatan
+STEP_JAM        = 0.5     
+MAKS_KURANG_PCT = 0.50    
+MIN_JAM         = 0.5     
 
 
-# ── Helper functions ──────────────────────────────────────────────────────────
+ 
 
 def _total_kwh(alat_tetap: list, alat_fleksibel: list) -> float:
     """
@@ -97,7 +97,7 @@ def _hitung_emisi(kwh: float) -> float:
     return _core_hitung_emisi(kwh)["emisi_kg_bulan"]
 
 
-# ── Greedy optimizer ──────────────────────────────────────────────────────────
+ 
 
 def _greedy(alat_tetap: list, alat_flex: list,
             luas_m2: float, batas_ike: float) -> tuple:
@@ -111,7 +111,7 @@ def _greedy(alat_tetap: list, alat_flex: list,
     """
     state = deepcopy(alat_flex)
 
-    # Urutkan dari kWh terbesar — dampak terbesar dulu
+     
     state.sort(key=lambda x: x['kwh_bulan'], reverse=True)
 
     while True:
@@ -120,7 +120,7 @@ def _greedy(alat_tetap: list, alat_flex: list,
         if ike_kini <= batas_ike:
             return True, state
 
-        # Cek apakah masih ada yang bisa dikurangi
+         
         bisa_kurang = [
             a for a in state
             if a['jam_saat_ini'] > a['jam_minimum']
@@ -128,7 +128,7 @@ def _greedy(alat_tetap: list, alat_flex: list,
         if not bisa_kurang:
             return False, state
 
-        # Kurangi satu langkah pada peralatan kWh terbesar yang masih bisa
+         
         for alat in state:
             if alat['jam_saat_ini'] > alat['jam_minimum']:
                 alat['jam_saat_ini'] = max(
@@ -138,7 +138,7 @@ def _greedy(alat_tetap: list, alat_flex: list,
                 break
 
 
-# ── Fungsi utama ──────────────────────────────────────────────────────────────
+ 
 
 def optimasi(ringkasan_dsm : dict,
              luas_m2       : float,
@@ -188,12 +188,12 @@ def optimasi(ringkasan_dsm : dict,
     ike_awal  = round(kwh_awal / max(1.0, luas_m2), 4)
     zona_awal = profil_ike(ike_awal)
 
-    # ── Cek apakah optimizer perlu berjalan ───────────────────────────────────
-    # SKIP : IKE masih di zona Sangat Efisien / Efisien / Cukup Efisien
-    #        (IKE < batas Cukup Efisien) -- zona ini dianggap sudah cukup
-    #        baik, optimizer tidak perlu memaksa turun lebih jauh.
-    # AKTIF: IKE >= batas Cukup Efisien (masuk zona Boros / Sangat Boros)
-    #   → coba turunkan ke Efisien, fallback ke Cukup Efisien kalau gagal.
+     
+     
+     
+     
+     
+     
     if ike_awal < BATAS_CUKUP_EFISIEN:
         return {
             "aktif"             : False,
@@ -218,7 +218,7 @@ def optimasi(ringkasan_dsm : dict,
             ),
         }
 
-    # ── Siapkan peralatan ─────────────────────────────────────────────────────
+     
     alat_tetap = ringkasan_dsm.get('tidak_fleksibel', [])
     alat_raw   = ringkasan_dsm.get('fleksibel', [])
 
@@ -246,7 +246,7 @@ def optimasi(ringkasan_dsm : dict,
             ),
         }
 
-    # Tambah field jam_saat_ini dan jam_minimum
+     
     alat_flex = []
     for a in alat_raw:
         item = deepcopy(a)
@@ -258,18 +258,18 @@ def optimasi(ringkasan_dsm : dict,
         )
         alat_flex.append(item)
 
-    # ── Iterasi 1: target Efisien ─────────────────────────────────────────────
+     
     berhasil, state = _greedy(alat_tetap, alat_flex, luas_m2, BATAS_EFISIEN)
     status      = "efisien"
     target_ike  = BATAS_EFISIEN
 
-    # ── Iterasi 2: fallback ke Cukup Efisien ──────────────────────────────────
+     
     if not berhasil:
         berhasil, state = _greedy(alat_tetap, alat_flex, luas_m2, BATAS_CUKUP_EFISIEN)
         status     = "cukup_efisien" if berhasil else "tidak_tercapai"
         target_ike = BATAS_CUKUP_EFISIEN
 
-    # ── Hitung hasil akhir ────────────────────────────────────────────────────
+     
     kwh_akhir     = _total_kwh(alat_tetap, state)
     ike_akhir     = round(kwh_akhir / max(1.0, luas_m2), 4)
     zona_akhir    = profil_ike(ike_akhir)
@@ -283,7 +283,7 @@ def optimasi(ringkasan_dsm : dict,
     pct_rp    = round(hemat_rp    / max(1, tagihan_awal) * 100, 1)
     pct_emisi = round(hemat_emisi / max(1, emisi_awal)   * 100, 1)
 
-    # ── Susun langkah rekomendasi ─────────────────────────────────────────────
+     
     langkah = []
     for alat in state:
         kurang = round(alat['jam_awal'] - alat['jam_saat_ini'], 1)
@@ -306,10 +306,10 @@ def optimasi(ringkasan_dsm : dict,
             "hemat_emisi_kg" : emisi_hemat,
         })
 
-    # Urutkan dari penghematan terbesar
+     
     langkah.sort(key=lambda x: x['hemat_kwh'], reverse=True)
 
-    # ── Pesan status ──────────────────────────────────────────────────────────
+     
     pesan_map = {
         "efisien"       : (
             f"Berhasil! Konsumsi turun dari zona {zona_awal} "

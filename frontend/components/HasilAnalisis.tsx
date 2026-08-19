@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Panel, DividerLabel } from "./ui";
 import { RekomendasiPerangkat } from "./RekomendasiPerangkat";
-import { formatKwh, formatRupiah, formatTanggalIndo } from "@/lib/format";
+import { formatKwh, formatRupiah, formatTanggalIndo, formatWatt } from "@/lib/format";
 import type { AnalisisResponse, FokusOptimasi, StatusAnomali } from "@/lib/types";
 
 const STATUS_STYLE: Record<
@@ -271,6 +271,32 @@ export function HasilAnalisis({
               </p>
             </div>
           </Expandable>
+
+          {/* Pengingat kapasitas watt vs VA — BUKAN anomali (lihat
+              core/kalkulasi.py::cek_kapasitas_watt), jadi SENGAJA tidak
+              pakai warna merah/kuning peringatan seperti banner anomali
+              di atas. Skenario ekstrem "kalau semua alat nyala bareng",
+              yang pada praktiknya jarang benar-benar terjadi — makanya
+              nadanya santai, bukan menuduh. Cuma tampil kalau memang
+              melebihi, tidak selalu tampil. */}
+          {hasil.info_kapasitas_watt.melebihi && (
+            <div className="rounded-xl border border-teal/30 bg-teal-dim px-5 py-4">
+              <p className="text-sm text-cream">
+                <span className="mr-1.5">⚡😅</span>
+                Kalau semua alat di atas nyala bareng, totalnya sekitar{" "}
+                <span className="font-mono font-semibold text-teal">
+                  {formatWatt(hasil.info_kapasitas_watt.total_watt)}
+                </span>{" "}
+                — di atas kapasitas aman rumah Anda (
+                <span className="font-mono">{formatWatt(hasil.info_kapasitas_watt.batas_watt_aman)}</span>
+                ). Rumah Anda sering &quot;jepret&quot; nggak?
+              </p>
+              <p className="mt-1.5 text-xs text-cream-dim/70">
+                Ini cuma info santai, bukan alarm — kemungkinan besar Anda memang tidak menyalakan
+                semuanya sekaligus.
+              </p>
+            </div>
+          )}
         </>
       )}
     </div>

@@ -14,7 +14,7 @@ function hitungKwhBulan(watt: number, jam: number, jumlah: number) {
 
 /** Batasi durasi nyala ke rentang wajar [0, 24] — sehari cuma 24 jam.
  * Angka di bawah 0 dibulatkan ke 0, di atas 24 dibulatkan ke 24, supaya
- * user tidak perlu menebak kenapa input "ditolak" — nilainya cuma
+ * user tidak perlu menebak kenapa input "ditolak" nilainya cuma
  * disesuaikan ke batas terdekat secara langsung. */
 function clampJam(v: number): number {
   if (Number.isNaN(v)) return 0;
@@ -52,10 +52,10 @@ export function PeralatanSection({
       setError("Tegangan dan arus harus lebih dari 0.");
       return;
     }
-    // clampJam() di input sudah mencegah nilai di luar [0, 24] — jadi
-    // satu-satunya kondisi tersisa yang perlu ditolak di sini adalah
-    // tepat 0 (alat yang "tidak pernah dipakai" tidak masuk akal untuk
-    // dianalisis). Pesan spesifik supaya user tahu persis kenapa ditolak.
+     
+     
+     
+     
     if (form.jam <= 0) {
       setError("harap cantumkan perangkat yang digunakan (daya nyala>0)");
       return;
@@ -63,9 +63,9 @@ export function PeralatanSection({
     setError(null);
     onChange([...daftarAlat, form]);
     setForm(KOSONG);
-    // Tutup modal otomatis — ini konfirmasi visual paling jelas bahwa
-    // penambahan berhasil. Kalau mau tambah alat lagi, tombol "+ Tambah
-    // Alat" masih gampang dijangkau, tidak perlu modal tetap terbuka.
+     
+     
+     
     setModalOpen(false);
   }
 

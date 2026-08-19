@@ -30,7 +30,7 @@ export class ApiError extends Error {
 function extractDetail(body: ApiErrorBody | undefined): string {
   if (!body?.detail) return "Terjadi kesalahan tak terduga di server.";
   if (typeof body.detail === "string") return body.detail;
-  // Pydantic validation errors (422) berbentuk array — ambil pesan pertama.
+   
   return body.detail[0]?.msg ?? "Data yang dikirim tidak valid.";
 }
 

@@ -162,6 +162,98 @@ def hitung_kwh_alat(watt: float, jam: float, jumlah: int = 1) -> float:
     return round(watt * jam * jumlah * 30 / 1000, 4)
 
 
+# ── Pengingat kapasitas watt vs daya tersambung (VA) ──────────────────────────
+
+# Rasio VA -> Watt aman = faktor daya (PF) rumah tangga = 0,8. Sumber:
+# infografis resmi PLN/Danantara Indonesia "Pahami Perbedaan VA & Watt"
+# (Watt = VA x PF, PF rumah tangga contoh 0,8). Bukan angka rekayasa
+# peneliti -- turunan langsung dari definisi VA sebagai daya semu yang
+# disediakan PLN, dikonversi ke watt nyata pakai rasio resmi tersebut.
+RASIO_WATT_AMAN = 0.8
+
+
+def hitung_batas_watt_aman(daya_va: int) -> float:
+    """
+    Batas watt aman yang bisa disalurkan MCB, dari daya tersambung (VA).
+
+    Watt aman = VA x PF (faktor daya rumah tangga = 0,8)
+    Sumber: infografis resmi PLN/Danantara Indonesia, "Pahami Perbedaan
+    VA & Watt" (Watt = VA x Faktor Daya, PF rumah tangga = 0,8).
+
+    CATATAN PENTING: ini SEKADAR PENGINGAT edukatif, BUKAN deteksi
+    anomali -- sistem TIDAK terhubung real-time ke MCB, dan TIDAK tahu
+    alat mana yang benar-benar nyala bersamaan (form cuma menyimpan
+    durasi jam/hari, bukan jadwal jam-ke-jam). Angka ini dihitung dari
+    skenario ekstrem "kalau SEMUA alat yang didaftarkan nyala sekaligus"
+    -- yang pada praktiknya jarang benar-benar terjadi. Karena itu,
+    hasil pengecekan ini SENGAJA tidak digabung ke status_anomali (lihat
+    action_analist/anomaly_evaluator.py) -- disajikan terpisah sebagai
+    info santai, bukan peringatan yang menuduh ada yang salah.
+    """
+    return round(daya_va * RASIO_WATT_AMAN, 2)
+
+
+def cek_kapasitas_watt(daftar_alat: list, daya_va: int) -> dict:
+    """
+    Jumlahkan watt SEMUA peralatan (skenario "kalau nyala sekaligus"),
+    bandingkan dengan batas aman MCB.
+
+    Parameters:
+        daftar_alat : list of dict, tiap dict punya key 'watt' dan
+                      'jumlah' (dari payload alat_valid Lapis 1)
+        daya_va     : daya tersambung PLN (VA)
+
+    Returns dict:
+        total_watt      : jumlah watt semua alat kalau nyala bersamaan
+        batas_watt_aman  : VA x 0,8
+        melebihi         : bool, True kalau total_watt > batas_watt_aman
+    """
+    total_watt = round(
+        sum(a['watt'] * a.get('jumlah', 1) for a in daftar_alat), 2
+    )
+    batas = hitung_batas_watt_aman(daya_va)
+    return {
+        "total_watt": total_watt,
+        "batas_watt_aman": batas,
+        "melebihi": total_watt > batas,
+    }
+
+
+# ── Batas pembelian token bulanan (khusus prabayar) ───────────────────────────
+
+# Rasio VA -> kWh maksimal/bulan = 720 jam nyala / 1000 = 0,72. Sumber:
+# PLN, dikutip CNN Indonesia, "Apa Sisa Token Listrik Diskon Bisa
+# Hangus? Ini Kata PLN" (6 Jan 2025): "Diskon diberikan maksimum untuk
+# pemakaian listrik selama 720 jam nyala ... Jika melakukan pembelian
+# melebihi 720 jam nyala, maka pembelian token (kWh) akan tertolak
+# oleh sistem."
+#
+# CATATAN KETERBATASAN (WAJIB diungkap di skripsi -- bukan disembunyikan):
+# artikel sumber membahas KONTEKS DISKON ("Token Listrik Diskon"),
+# sehingga ada kemungkinan angka 720 jam nyala ini spesifik berlaku
+# untuk periode/skema diskon tertentu, bukan aturan pembelian token
+# yang pasti berlaku permanen untuk SEMUA pelanggan prabayar sepanjang
+# tahun. Belum ditemukan sumber independen yang memastikan cakupannya
+# di luar konteks diskon. Peneliti tetap menerapkan angka ini karena
+# ini satu-satunya sumber PLN yang berhasil ditemukan untuk mekanisme
+# ini, dengan keterbatasan ini dinyatakan eksplisit -- bukan diklaim
+# sebagai kepastian regulasi PLN yang berlaku umum.
+RASIO_KWH_BULANAN_MAKSIMAL = 0.72
+
+
+def hitung_batas_kwh_bulanan(daya_va: int) -> float:
+    """
+    Batas maksimal kWh yang bisa dibeli per bulan (khusus prabayar),
+    dari daya tersambung (VA) -- setara 720 jam nyala.
+
+    kWh maksimal = VA x 0,72
+
+    Sumber & keterbatasan: lihat komentar RASIO_KWH_BULANAN_MAKSIMAL
+    di atas.
+    """
+    return round(daya_va * RASIO_KWH_BULANAN_MAKSIMAL, 2)
+
+
 # ── Fungsi kalkulasi tagihan & emisi (dipakai Lapis 1 DAN Lapis 3) ────────────
 
 def hitung_biaya_materai(subtotal: float, is_prabayar: bool = False) -> float:

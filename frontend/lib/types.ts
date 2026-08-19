@@ -147,6 +147,9 @@ export interface AnalisisResponse {
   golongan_daya: string;
   is_prabayar: boolean;
   alat_valid: AlatValid[];
+  // Pengingat kapasitas watt vs VA -- BUKAN anomali, sengaja terpisah
+  // dari status_anomali/pesan_anomali (lihat core/kalkulasi.py::cek_kapasitas_watt)
+  info_kapasitas_watt: { total_watt: number; batas_watt_aman: number; melebihi: boolean };
   tagihan_asli: number | null;
   token_context: TokenContextResult | null;
   status_anomali: StatusAnomali;

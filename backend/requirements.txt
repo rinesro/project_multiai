@@ -1,20 +1,16 @@
-# ============================================================
-# EnergiCerdas AI — Backend (FastAPI) Requirements
-# ============================================================
-
-# Web framework
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 python-dotenv>=1.0.0
 
-# Data & numerik
+pydantic>=2.0.0
+ 
 pandas>=2.2.0
 numpy>=2.0.0
 
-# model ML
+ 
 scikit-learn==1.6.1
 lightgbm==4.6.0
 joblib==1.5.3
 
-# Gen AI
+ 
 google-generativeai>=0.7.0

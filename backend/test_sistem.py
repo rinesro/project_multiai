@@ -355,7 +355,129 @@ def tes_optimizer_tidak_aktif_untuk_cukup_efisien():
 
 
 cek("Optimizer brute force aktif untuk IKE tinggi", tes_optimizer_aktif_untuk_ike_tinggi)
+def tes_greedy_kalkulasi_langsung_akurat():
+    """
+    Regresi khusus untuk perombakan algoritma optimizer dari iteratif
+    (step 0,5 jam berulang) ke kalkulasi langsung (Δt=ΔE/P). Uji multi-
+    skenario acak: kalau status 'aktif dan berhasil', IKE akhir yang
+    SUNGGUHAN dihitung ulang dari payload harus benar-benar <= target
+    -- bukan cuma laporan status yang salah karena galat pembulatan
+    floating-point (masalah nyata yang sempat ditemukan & diperbaiki
+    lewat epsilon _EPSILON_IKE di optimizer/greedy_optimizer.py).
+    """
+    import random
+    random.seed(123)
+    kategori_cycle = ["Pendingin", "Hiburan/Elektronik", "Laundry", "Pencahayaan"]
+    for i in range(15):
+        n_alat = random.randint(1, 4)
+        daftar_alat = []
+        for j in range(n_alat):
+            daftar_alat.append({
+                "nama": f"Alat{j}", "kategori": kategori_cycle[j % len(kategori_cycle)],
+                "tegangan": 220, "arus": round(random.uniform(0.5, 5.0), 2),
+                "jam": round(random.uniform(2, 10), 1), "jumlah": 1,
+            })
+        r = _client.post("/api/analisis", json={
+            "daya_va": 2200, "is_prabayar": False,
+            "luas_rumah": round(random.uniform(15, 80), 1), "penghuni": 3,
+            "tagihan_asli": 800000, "daftar_alat": daftar_alat,
+            "intent_user": ["Biaya", "Lingkungan"],
+        })
+        assert r.status_code == 200, f"skenario #{i} status {r.status_code}: {r.text[:200]}"
+        d = r.json()
+        opt = d["hasil_optimasi"]
+        if opt["aktif"] and opt["status"] in ("efisien", "cukup_efisien"):
+            # Hitung ulang IKE dari total_kwh_akhir yang dilaporkan --
+            # harus benar-benar capai target, bukan cuma status yang salah lapor
+            assert opt["ike_akhir"] <= opt["target_ike"] + 1e-3, (
+                f"skenario #{i}: status bilang '{opt['status']}' tapi "
+                f"ike_akhir={opt['ike_akhir']} > target_ike={opt['target_ike']}"
+            )
+
+
 cek("Optimizer TIDAK aktif untuk zona Cukup Efisien (regresi)", tes_optimizer_tidak_aktif_untuk_cukup_efisien)
+cek("Greedy kalkulasi langsung akurat, 15 skenario acak (regresi epsilon)", tes_greedy_kalkulasi_langsung_akurat)
+
+
+def tes_kapasitas_watt_terpisah_dari_anomali():
+    """
+    Pengingat kapasitas watt vs VA (core.kalkulasi.cek_kapasitas_watt)
+    HARUS tampil di field terpisah (info_kapasitas_watt), TIDAK boleh
+    ikut mengubah status_anomali/pesan_anomali -- ini sengaja bukan
+    deteksi anomali (lihat docstring cek_kapasitas_watt).
+    """
+    r = _client.post("/api/analisis", json={
+        "daya_va": 1300, "is_prabayar": False, "luas_rumah": 45, "penghuni": 3,
+        "tagihan_asli": 281883,  # persis estimasi asli (dihitung, bukan ditebak) -> pasti "normal"
+        "daftar_alat": [
+            {"nama": "AC", "kategori": "Pendingin", "tegangan": 220,
+             "arus": 3.41, "jam": 8, "jumlah": 1},
+            {"nama": "Mesin Cuci", "kategori": "Laundry", "tegangan": 220,
+             "arus": 1.59, "jam": 1, "jumlah": 1},
+        ],
+        "intent_user": ["Biaya"],
+    })
+    assert r.status_code == 200, f"status {r.status_code}: {r.text[:200]}"
+    d = r.json()
+    assert "info_kapasitas_watt" in d, "Field info_kapasitas_watt harus ada"
+    ikw = d["info_kapasitas_watt"]
+    assert set(ikw.keys()) == {"total_watt", "batas_watt_aman", "melebihi"}
+    # AC(750.2W) + Mesin Cuci(349.8W) = 1100W > batas 1300*0.8=1040W -> melebihi
+    assert ikw["melebihi"] is True, f"Harusnya melebihi, dapat {ikw}"
+    assert ikw["batas_watt_aman"] == 1040.0
+    # PENTING: field ini TIDAK BOLEH mengubah status_anomali
+    assert d["status_anomali"] == "normal", (
+        f"status_anomali harusnya tidak terpengaruh kapasitas watt, dapat {d['status_anomali']}"
+    )
+
+
+cek("Info kapasitas watt terpisah dari status_anomali", tes_kapasitas_watt_terpisah_dari_anomali)
+
+
+def tes_batas_kwh_bulanan_prabayar_prioritas():
+    """
+    Cek B: total_kwh > batas kWh bulanan (~720 jam nyala, VA x 0,72)
+    HARUS memicu pesan "meteran rusak, hubungi 123" -- MENGGANTIKAN
+    pesan anomali 29% biasa, khusus untuk prabayar. Pascabayar TIDAK
+    BOLEH terpengaruh sama sekali (lihat core/kalkulasi.py::
+    hitung_batas_kwh_bulanan, action_analist/anomaly_evaluator.py::
+    evaluasi_anomali_prabayar).
+    """
+    alat_besar = [
+        {"nama": "AC Besar", "kategori": "Pendingin", "tegangan": 220,
+         "arus": 10.0, "jam": 20, "jumlah": 2},
+    ]
+
+    # 1300 VA -> batas 936 kWh/bulan. Alat ini hasilkan 2640 kWh -> jelas melebihi.
+    r_prabayar = _client.post("/api/analisis", json={
+        "daya_va": 1300, "is_prabayar": True, "luas_rumah": 45, "penghuni": 3,
+        "token_context": {
+            "tanggal_pembelian": str(date.today() - timedelta(days=10)),
+            "sisa_sebelum_beli": 50.0, "nominal_dibeli": 500000, "sisa_saat_ini": 100.0,
+        },
+        "daftar_alat": alat_besar, "intent_user": ["Biaya"],
+    })
+    assert r_prabayar.status_code == 200, f"status {r_prabayar.status_code}: {r_prabayar.text[:200]}"
+    d1 = r_prabayar.json()
+    assert d1["status_anomali"] == "anomali"
+    assert "meteran" in d1["pesan_anomali"].lower() and "123" in d1["pesan_anomali"], (
+        f"Pesan meteran rusak harus muncul, dapat: {d1['pesan_anomali']}"
+    )
+
+    # Kombinasi alat & VA SAMA PERSIS, tapi PASCABAYAR -- Cek B TIDAK BOLEH berlaku
+    r_pascabayar = _client.post("/api/analisis", json={
+        "daya_va": 1300, "is_prabayar": False, "luas_rumah": 45, "penghuni": 3,
+        "tagihan_asli": 1000000,
+        "daftar_alat": alat_besar, "intent_user": ["Biaya"],
+    })
+    assert r_pascabayar.status_code == 200
+    d2 = r_pascabayar.json()
+    assert "meteran" not in d2["pesan_anomali"].lower(), (
+        "Cek B TIDAK BOLEH berlaku untuk pascabayar, tapi pesan meteran rusak muncul"
+    )
+
+
+cek("Batas kWh bulanan prabayar (Cek B) prioritas & khusus prabayar", tes_batas_kwh_bulanan_prabayar_prioritas)
 
 _client.__exit__(None, None, None)
 

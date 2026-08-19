@@ -81,10 +81,10 @@ Output:
     str : salah satu dari 5 kategori di atas
 """
 
-# Parameter trapesium [a, b, c, d]: naik dari a ke b, datar dari b ke c,
-# turun dari c ke d. Hasil kalibrasi 5-lapis (lihat docstring modul).
-# Kelas PERTAMA (a==b==0): plateau dari titik 0, tidak ada IKE negatif.
-# Kelas TERAKHIR (c==d): plateau terbuka ke atas (lihat _trapmf).
+ 
+ 
+ 
+ 
 MF_IKE = {
     "Sangat Efisien": (0.0,   0.0,   1.586,  1.938),
     "Efisien"        : (1.669, 1.855, 2.597,  2.783),
@@ -114,7 +114,7 @@ def _trapmf(x: float, a: float, b: float, c: float, d: float) -> float:
     if x <= c:
         return 1.0
     if c == d:
-        return 1.0  # plateau terbuka ke atas -- lihat catatan di atas
+        return 1.0   
     if x < d:
         return (d - x) / (d - c)
     return 0.0

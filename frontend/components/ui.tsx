@@ -18,8 +18,6 @@ export function Panel({
   );
 }
 
-/** Label section bergaya panel/skema teknis — "[ 01 ]" bukan angka
- * bulat generik, karena form ini memang punya urutan langkah nyata. */
 export function SectionLabel({
   nomor,
   title,
@@ -105,7 +103,6 @@ export function Button({
   );
 }
 
-/** Toggle pill dua opsi — dipakai untuk jenis meteran & fokus optimasi. */
 export function TogglePill({
   options,
   value,

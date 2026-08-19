@@ -7,7 +7,7 @@ GET /api/referensi — kontrak API yang disepakati di Tahap 1.
 Field response (hasil_dsm, hasil_optimasi) sengaja bertipe longgar
 (list[dict] / dict) alih-alih di-strict-kan jadi nested model —
 supaya tidak menduplikasi/fabrikasi definisi field di dua tempat
-(di sini dan di models/dsm_classifier.py, optimizer/greedy_optimizer.py).
+(di sini dan di models/dsm_classifier.py, optimizer/action_analist.py).
 Kalau frontend nanti butuh tipe yang lebih ketat, definisikan nested
 model di sini SETELAH field-nya diverifikasi dari source asli.
 """
@@ -95,6 +95,12 @@ class AnalisisResponse(BaseModel):
     golongan_daya: str
     is_prabayar: bool
     alat_valid: list[dict]
+
+    # Lapis 1 — pengingat kapasitas watt vs VA (BUKAN anomali, lihat
+    # core/kalkulasi.py::cek_kapasitas_watt -- sengaja dipisah dari
+    # status_anomali karena sifatnya edukatif/skenario ekstrem, bukan
+    # deteksi kejadian nyata)
+    info_kapasitas_watt: dict
 
     # Lapis 1 — konteks tagihan/token (salah satu None tergantung is_prabayar)
     tagihan_asli: Optional[float] = None

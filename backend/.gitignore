@@ -5,24 +5,24 @@ frontend/.env.local
 .env.local
 .env.*.local
 
-# Python
+ 
 __pycache__/
 *.pyc
 *.pyo
 .Python
 *.egg-info/
 
-# Node / Next.js
+ 
 frontend/node_modules/
 frontend/.next/
 frontend/out/
 *.tsbuildinfo
 
-# OS / editor
+ 
 .DS_Store
 .vscode/
 .idea/
 
-# Vercel
+ 
 .vercel
 .streamlit/

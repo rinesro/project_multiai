@@ -18,22 +18,6 @@ interface PerangkatKurangi {
   hematRp: number;
 }
 
-/**
- * Mengelompokkan hasil_dsm + hasil_optimasi jadi dua daftar aksi yang
- * mudah dipahami awam, TANPA menyebut istilah "label DSM" atau
- * "Fleksibel/Tidak Fleksibel" ke user:
- *
- *   - "Tidak Fleksibel" -> tidak bisa dikurangi jam pakainya (alat
- *     yang harus menyala saat dibutuhkan) -> satu-satunya cara hemat
- *     adalah ganti dengan model yang lebih efisien.
- *   - Muncul di hasil_optimasi.langkah -> BENAR-BENAR direkomendasikan
- *     optimizer untuk dikurangi jam pakainya (bukan sekadar berlabel
- *     "Fleksibel" tapi tidak disentuh optimizer).
- *
- * Sengaja dihitung di sini (bukan diminta Gemini menyusunnya) supaya
- * nama alat & angka (volt/ampere/watt) selalu presisi — LLM tidak
- * dilibatkan untuk data teknis, hanya untuk narasi strategi.
- */
 function bucketRekomendasi(hasilDsm: HasilDsmItem[], hasilOpt: HasilOptimasi) {
   const ganti: PerangkatGanti[] = hasilDsm
     .filter((a) => a.label_dsm === "Tidak Fleksibel")
@@ -91,14 +75,6 @@ export function RekomendasiPerangkat({
             ))}
           </ul>
 
-          {/* Ringkasan agregat — total dari SELURUH langkah pengurangan
-              di atas, dipakai angka hasil_optimasi langsung (bukan
-              dijumlah manual dari tiap baris) supaya presisi. Ini
-              SATU-SATUNYA tempat hasil greedy_optimizer ditampilkan --
-              sebelumnya ada kartu metrik terpisah di bawah (Hemat
-              Biaya/Bulan dkk) yang menampilkan angka SAMA PERSIS,
-              duplikasi itu sudah dihapus supaya tidak ada dua tempat
-              untuk satu angka yang sama. */}
           {(tampilBiaya || tampilLingkungan) && (
             <div className="mt-3 rounded-lg border border-teal/30 bg-teal-dim px-4 py-3">
               <p className="text-xs uppercase tracking-wide text-cream-dim">

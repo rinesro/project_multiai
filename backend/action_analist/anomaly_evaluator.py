@@ -61,6 +61,8 @@ Prabayar butuh penanganan kasus khusus yang tidak dimiliki pascabayar
                                          ada top-up susulan yang tak tercatat)
 """
 
+from core.kalkulasi import hitung_batas_kwh_bulanan
+
 # 29% — Parry et al. (2021), Table 2, kategori "Usage duration": R=1,29,
 # 95% CI [1,01-1,66], P=0,044. Lihat docstring modul untuk penjelasan
 # lengkap kenapa angka ini dipakai dan catatan analogi lintas domainnya.
@@ -127,23 +129,39 @@ def evaluasi_anomali_pascabayar(tagihan_asli: float,
 
 def evaluasi_anomali_prabayar(token_terpakai_aktual: float,
                               estimasi_terpakai_perangkat: float,
-                              hari_berjalan: int) -> dict:
+                              hari_berjalan: int,
+                              daya_va: int,
+                              total_kwh: float) -> dict:
     """
     Wrapper status untuk prabayar (domain kWh/token).
 
-    Menangani tiga kondisi khusus SEBELUM menjalankan evaluasi anomali
+    Menangani EMPAT kondisi khusus SEBELUM menjalankan evaluasi anomali
     murni — masing-masing punya akar masalah berbeda dan harus
     ditampilkan dengan pesan berbeda ke user, bukan disamakan sebagai
-    "anomali":
+    "anomali" konsumsi biasa:
 
-        1. hari_berjalan < 0          → tanggal pembelian tidak valid
-        2. hari_berjalan < 1          → periode terlalu singkat
-        3. token_terpakai_aktual < 0  → data tidak konsisten
+        1. hari_berjalan < 0                → tanggal pembelian tidak valid
+        2. hari_berjalan < 1                → periode terlalu singkat
+        3. token_terpakai_aktual < 0        → data tidak konsisten
+        4. total_kwh > batas kWh bulanan    → indikasi meteran rusak
+           (lihat core/kalkulasi.py::hitung_batas_kwh_bulanan) --
+           DICEK SEBELUM perbandingan 29% biasa dan MENGGANTIKAN
+           pesannya kalau dua-duanya sama-sama terpicu, karena
+           kemungkinan penyebabnya (meteran rusak) jauh lebih serius
+           dan actionable daripada sekadar "konsumsi tidak wajar".
+
+    Parameters:
+        daya_va   : daya tersambung PLN (VA), untuk Cek B
+        total_kwh : total konsumsi bulanan dari daftar alat (kWh),
+                    dipakai sebagai proksi kemungkinan pembelian token
+                    bulanan -- SATU-SATUNYA nilai kWh bulanan yang
+                    tersedia di sistem ini (tidak ada pencatatan
+                    akumulasi pembelian token sepanjang bulan berjalan)
 
     Returns dict:
         status       : 'anomali' | 'normal' | 'tanggal_tidak_valid' |
                        'data_belum_cukup' | 'data_tidak_konsisten'
-        selisih_pct  : float | None (None untuk 3 status khusus di atas)
+        selisih_pct  : float | None (None untuk status khusus di atas)
         pesan        : str, siap ditampilkan ke user
     """
     if hari_berjalan < 0:
@@ -176,6 +194,24 @@ def evaluasi_anomali_prabayar(token_terpakai_aktual: float,
                 "(sisa sebelum beli + hasil konversi pembelian). "
                 "Kemungkinan ada top-up susulan yang belum tercatat, "
                 "atau kesalahan input sisa token."
+            ),
+        }
+
+    # Cek B: batas maksimal pembelian token bulanan (~720 jam nyala).
+    # Dicek SEBELUM evaluasi 29% biasa -- kalau terpicu, pesan ini yang
+    # tampil, BUKAN pesan anomali konsumsi biasa (lihat docstring).
+    batas_kwh_bulanan = hitung_batas_kwh_bulanan(daya_va)
+    if total_kwh > batas_kwh_bulanan:
+        return {
+            "status"     : "anomali",
+            "selisih_pct": None,
+            "pesan"      : (
+                f"Total konsumsi bulanan Anda ({total_kwh} kWh) melebihi "
+                f"batas maksimal pembelian token untuk daya {daya_va} VA "
+                f"(~{batas_kwh_bulanan} kWh/bulan, setara 720 jam nyala). "
+                "Kemungkinan mesin meteran Anda bermasalah — harap segera "
+                "hubungi PLN 123 untuk menghindari hal-hal yang tidak "
+                "diinginkan."
             ),
         }
 

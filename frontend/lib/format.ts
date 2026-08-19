@@ -16,6 +16,10 @@ export function formatKwh(nilai: number, desimal = 2): string {
   })} kWh`;
 }
 
+export function formatWatt(nilai: number): string {
+  return `${Math.round(nilai).toLocaleString("id-ID")} W`;
+}
+
 export function formatPersen(nilai: number, desimal = 1): string {
   return `${nilai.toLocaleString("id-ID", {
     minimumFractionDigits: desimal,

@@ -15,7 +15,7 @@ import google.generativeai as genai
 
 def _bersihkan_markdown(teks: str) -> str:
     """
-    Jaring pengaman KEDUA selain instruksi prompt (aturan #11 di bawah)
+    Jaring pengaman KEDUA selain instruksi prompt (aturan  
     -- LLM tidak 100% patuh instruksi setiap saat. Hapus sisa sintaks
     markdown yang mungkin lolos supaya tidak muncul literal di UI
     (kedua interface merender teks ini sebagai paragraf polos: Next.js
@@ -28,22 +28,22 @@ def _bersihkan_markdown(teks: str) -> str:
     Bahasa Indonesia (kata ulang seperti "anak-anak", rentang angka
     seperti "2020-2024") -- sudah diuji eksplisit untuk kasus ini.
     """
-    teks = re.sub(r'\*\*(.+?)\*\*', r'\1', teks)          # **tebal**
-    teks = re.sub(r'__(.+?)__', r'\1', teks)               # __tebal__
-    teks = re.sub(r'(?<!\w)\*(?!\s)(.+?)(?<!\s)\*(?!\w)', r'\1', teks)  # *miring*
-    teks = re.sub(r'^#{1,6}\s*', '', teks, flags=re.MULTILINE)          # # Judul
-    teks = re.sub(r'^[\-\*]\s+', '', teks, flags=re.MULTILINE)          # - bullet
+    teks = re.sub(r'\*\*(.+?)\*\*', r'\1', teks)           
+    teks = re.sub(r'__(.+?)__', r'\1', teks)                
+    teks = re.sub(r'(?<!\w)\*(?!\s)(.+?)(?<!\s)\*(?!\w)', r'\1', teks)   
+    teks = re.sub(r'^#{1,6}\s*', '', teks, flags=re.MULTILINE)           
+    teks = re.sub(r'^[\-\*]\s+', '', teks, flags=re.MULTILINE)           
     return teks.strip()
 
 
-# ============================================================
-# HELPER FORMAT HASIL OPTIMASI — token (prabayar) vs Rp (pascabayar)
-# ============================================================
-# Optimizer (optimizer/greedy_optimizer.py) TIDAK berubah — tetap menghitung
-# hemat_kwh & hemat_rp sekaligus untuk kedua jenis meteran. Yang beda
-# cuma cara MENAMPILKANNYA. Dipusatkan di sini supaya narasi Gemini dan
-# render UI (Streamlit maupun frontend Next.js lewat response API)
-# selalu konsisten — tidak ditulis ulang di banyak tempat.
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
 
 def format_hemat_langkah(l: dict, is_prabayar: bool) -> str:
     """Format penghematan satu langkah rekomendasi peralatan."""
@@ -116,12 +116,12 @@ def generate_gemini_narasi(api_key       : str,
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel("gemini-2.5-flash")
 
-    # Ringkasan jumlah alat per kategori — BUKAN daftar nama, supaya
-    # Gemini tidak tergoda menyebut alat spesifik (itu tugas UI).
+     
+     
     jumlah_fleksibel     = sum(1 for a in hasil_dsm if a['label_dsm'] == 'Fleksibel')
     jumlah_tdk_fleksibel = sum(1 for a in hasil_dsm if a['label_dsm'] == 'Tidak Fleksibel')
 
-    # Susun ringkasan konteks optimasi — angka total saja, tanpa rincian per-alat.
+     
     if hasil_opt and hasil_opt.get('aktif'):
         opt_status = hasil_opt['status']
         jumlah_langkah = len(hasil_opt.get('langkah', []))
@@ -142,18 +142,18 @@ sudah dimaksimalkan pengurangannya — sisanya cuma bisa dihemat lewat ganti ala
     else:
         konteks_opt = "Optimasi tidak diperlukan — konsumsi sudah dalam zona efisien."
 
-    # pesan_anomali sudah lengkap & sesuai domain (Rp/kWh) dari
-    # action_analist/anomaly_evaluator.py — tidak perlu disusun ulang di sini.
+     
+     
     anomali_str       = payload['pesan_anomali']
     jenis_meteran_str = (
         "Prabayar (Token)" if payload['is_prabayar'] else "Pascabayar (Tagihan)"
     )
-    # PENTING: sebelumnya cuma nyantumin fokus_str sebagai DATA pasif
-    # ("Fokus user: Biaya") tanpa instruksi perilaku yang tegas —
-    # akibatnya Gemini tidak benar-benar membedakan narasi antara
-    # "Biaya saja" vs "Biaya + Lingkungan" (dua-duanya kebaca sama).
-    # Sekarang dibuat instruksi EKSPLISIT per kombinasi, bukan cuma
-    # data yang diserahkan ke interpretasi bebas Gemini.
+     
+     
+     
+     
+     
+     
     fokus_biaya      = "Biaya" in intent_user
     fokus_lingkungan = "Lingkungan" in intent_user
     if fokus_biaya and fokus_lingkungan:
