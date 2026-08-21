@@ -2,10 +2,10 @@
 backend/main.py
 =================
 FastAPI backend untuk EnergiCerdas AI — dipakai frontend Next.js
-(Vercel). Deploy target: Hugging Face Spaces (Docker).
+(Vercel). Deploy target: Vercel (Python serverless function).
 
 Orkestrasi Lapis 1 (kalkulasi & anomali) → Lapis 2 (fuzzy IKE + DSM
-classifier) → Lapis 3 (freedy optimizer) → narasi Gemini,
+classifier) → Lapis 3 (brute force optimizer) → narasi Gemini,
 memakai modul yang SAMA dengan app.py Streamlit (core/, services/,
 models/, optimizer/, action_analist/) — tidak ada logika yang ditulis ulang.
 """
@@ -34,13 +34,20 @@ sys.path.insert(0, str(Path(__file__).parent))
 # ada, jadi aman dipakai di kedua konteks.
 load_dotenv(Path(__file__).parent / ".env")
 
+# WAJIB sebelum import apa pun yang menyeret LightGBM (models/dsm_classifier
+# di bawah) -- lihat bootstrap.py untuk detail lengkap kenapa ini perlu di
+# Vercel. Dipisah jadi modul sendiri supaya entry point LAIN (test_sistem.py)
+# juga bisa memanggilnya sedini mungkin, sebelum main.py sempat diimpor.
+from bootstrap import preload_vendored_libgomp
+preload_vendored_libgomp()
+
 from core.kalkulasi import (
     GOLONGAN_DAYA, KATEGORI_ALAT, PBJT_RUMAH_TANGGA, get_tarif,
     TARIF_DAYA_RENDAH, cek_kapasitas_watt,
 )
 from action_analist.ike_profiler import profil_ike
 from models.dsm_classifier import DSMClassifier
-from optimizer.greedy_optimizer import optimasi
+from optimizer.brute_force import optimasi
 from services.ingestion import DataIngestionValidatorAgent
 from services.narasi import generate_gemini_narasi
 
@@ -141,7 +148,7 @@ def post_analisis(req: AnalisisRequest):
     """
     Endpoint utama — setara tombol "🚀 Mulai Analisis" di app.py
     Streamlit. Menjalankan Lapis 1 (kalkulasi + anomali) → Lapis 2
-    (fuzzy IKE + DSM classifier) → Lapis 3 (greedy optimizer) →
+    (fuzzy IKE + DSM classifier) → Lapis 3 (brute force optimizer) →
     narasi Gemini, lalu mengembalikan semuanya sebagai satu response.
 
     Validasi konsistensi is_prabayar vs tagihan_asli/token_context

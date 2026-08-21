@@ -30,7 +30,7 @@ prabayar).
 Dasar ambang batas 29% (BATAS_TOLERANSI_ANOMALI):
     Parry, D. A., Davidson, B. I., Sewall, C. J. R., Fisher, J. T.,
     Mieczkowski, H., & Quintana, D. S. (2021). A systematic review and
-    meta-analysis of discrepancies between logged and self-reported
+    meta-analisis of discrepancies between logged and self-reported
     digital media use. Nature Human Behaviour.
     https://doi.org/10.1038/s41562-021-01117-5
 

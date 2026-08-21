@@ -47,6 +47,15 @@ GUNAKAN_GEMINI_ASLI = "--gemini-asli" in sys.argv
 if not GUNAKAN_GEMINI_ASLI and not os.environ.get("GEMINI_API_KEY"):
     os.environ["GEMINI_API_KEY"] = "dummy-key-untuk-tes-otomatis"
 
+# WAJIB paling awal, SEBELUM tes_impor() (di bawah) memicu impor
+# models.dsm_classifier (-> LightGBM) secara langsung -- lihat
+# bootstrap.py untuk detail lengkap. Modul ini TIDAK bergantung pada
+# FastAPI/Gemini apa pun, jadi aman dipanggil di sini tanpa mengganggu
+# urutan mock Gemini yang harus terjadi SEBELUM main.py diimpor (lihat
+# baris di bawah).
+from bootstrap import preload_vendored_libgomp
+preload_vendored_libgomp()
+
 _lulus = []
 _gagal = []
 
@@ -88,7 +97,7 @@ def tes_impor():
     )
     from services.ingestion import DataIngestionValidatorAgent
     from models.dsm_classifier import DSMClassifier
-    from optimizer.greedy_optimizer import optimasi
+    from optimizer.brute_force import optimasi
     assert BATAS_TOLERANSI_ANOMALI == 0.29, "Ambang toleransi harusnya 0.29"
 
 
@@ -334,7 +343,7 @@ def tes_optimizer_tidak_aktif_untuk_cukup_efisien():
     (harusnya cuma Boros/Sangat Boros) -- ambang aktivasi salah pakai
     BATAS_EFISIEN, seharusnya BATAS_CUKUP_EFISIEN.
     """
-    from optimizer.greedy_optimizer import BATAS_EFISIEN, BATAS_CUKUP_EFISIEN
+    from optimizer.brute_force import BATAS_EFISIEN, BATAS_CUKUP_EFISIEN
     ike_cukup_efisien = (BATAS_EFISIEN + BATAS_CUKUP_EFISIEN) / 2
     r = _client.post("/api/analisis", json={
         "daya_va": 1300, "is_prabayar": False,
@@ -363,7 +372,7 @@ def tes_greedy_kalkulasi_langsung_akurat():
     SUNGGUHAN dihitung ulang dari payload harus benar-benar <= target
     -- bukan cuma laporan status yang salah karena galat pembulatan
     floating-point (masalah nyata yang sempat ditemukan & diperbaiki
-    lewat epsilon _EPSILON_IKE di optimizer/greedy_optimizer.py).
+    lewat epsilon _EPSILON_IKE di optimizer/brute_force.py).
     """
     import random
     random.seed(123)
