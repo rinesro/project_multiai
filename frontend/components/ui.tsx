@@ -11,13 +11,26 @@ export function Panel({
 }) {
   return (
     <div
-      className={`rounded-xl border border-graphite-700 bg-graphite-900 p-5 sm:p-7 ${className}`}
+      className={
+        "relative overflow-hidden rounded-xl border border-graphite-600 " +
+        "bg-graphite-750 p-5 shadow-[0_8px_30px_-8px_rgba(0,0,0,0.5),0_0_40px_-20px_rgba(232,163,61,0.25)] " +
+        `sm:p-7 ${className}`
+      }
     >
+      {/* Garis aksen di atas panel -- pembeda visual jelas + sentuhan
+          warna, bukan cuma kontras abu-abu. Gradient supaya tidak
+          terasa seperti garis status/peringatan yang flat solid. */}
+      <div
+        aria-hidden
+        className="absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r from-amber/60 via-amber-bright/80 to-amber/60"
+      />
       {children}
     </div>
   );
 }
 
+/** Label section bergaya panel/skema teknis — "[ 01 ]" bukan angka
+ * bulat generik, karena form ini memang punya urutan langkah nyata. */
 export function SectionLabel({
   nomor,
   title,
@@ -103,6 +116,7 @@ export function Button({
   );
 }
 
+/** Toggle pill dua opsi — dipakai untuk jenis meteran & fokus optimasi. */
 export function TogglePill({
   options,
   value,
@@ -201,7 +215,7 @@ export function Modal({
         onClick={onClose}
         aria-hidden
       />
-      <div className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-graphite-700 bg-graphite-900 p-6 shadow-2xl">
+      <div className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-graphite-700 bg-graphite-800 p-6 shadow-2xl">
         <div className="mb-5 flex items-center justify-between">
           <h3 className="text-base font-semibold text-cream">{title}</h3>
           <button
