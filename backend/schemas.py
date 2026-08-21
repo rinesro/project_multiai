@@ -115,7 +115,7 @@ class AnalisisResponse(BaseModel):
     # Lapis 2 — DSM classifier (list of dict, lihat models/dsm_classifier.py)
     hasil_dsm: list[dict]
 
-    # Lapis 3 — brute force optimizer (lihat optimizer/greedy_optimizer.py)
+    # Lapis 3 — greedy optimizer (lihat optimizer/greedy_optimizer.py)
     hasil_optimasi: dict
 
     # Narasi Gemini

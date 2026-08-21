@@ -30,7 +30,7 @@ prabayar).
 Dasar ambang batas 29% (BATAS_TOLERANSI_ANOMALI):
     Parry, D. A., Davidson, B. I., Sewall, C. J. R., Fisher, J. T.,
     Mieczkowski, H., & Quintana, D. S. (2021). A systematic review and
-    meta-analisis of discrepancies between logged and self-reported
+    meta-analysis of discrepancies between logged and self-reported
     digital media use. Nature Human Behaviour.
     https://doi.org/10.1038/s41562-021-01117-5
 
@@ -62,6 +62,7 @@ Prabayar butuh penanganan kasus khusus yang tidak dimiliki pascabayar
 """
 
 from core.kalkulasi import hitung_batas_kwh_bulanan
+from core.format_id import format_angka_id
 
 # 29% — Parry et al. (2021), Table 2, kategori "Usage duration": R=1,29,
 # 95% CI [1,01-1,66], P=0,044. Lihat docstring modul untuk penjelasan
@@ -113,12 +114,12 @@ def evaluasi_anomali_pascabayar(tagihan_asli: float,
     if status == "anomali":
         pesan = (
             f"Anomali terindikasi — selisih estimasi vs tagihan asli "
-            f"{hasil['selisih_pct']}% (ambang batas "
+            f"{format_angka_id(hasil['selisih_pct'], 1)}% (ambang batas "
             f"{round(BATAS_TOLERANSI_ANOMALI * 100)}%). Kemungkinan ada "
             "perangkat yang belum diinput atau indikasi kebocoran arus."
         )
     else:
-        pesan = f"Tagihan wajar (selisih {hasil['selisih_pct']}%)."
+        pesan = f"Tagihan wajar (selisih {format_angka_id(hasil['selisih_pct'], 1)}%)."
 
     return {
         "status"     : status,
@@ -206,9 +207,9 @@ def evaluasi_anomali_prabayar(token_terpakai_aktual: float,
             "status"     : "anomali",
             "selisih_pct": None,
             "pesan"      : (
-                f"Total konsumsi bulanan Anda ({total_kwh} kWh) melebihi "
+                f"Total konsumsi bulanan Anda ({format_angka_id(total_kwh, 2)} kWh) melebihi "
                 f"batas maksimal pembelian token untuk daya {daya_va} VA "
-                f"(~{batas_kwh_bulanan} kWh/bulan, setara 720 jam nyala). "
+                f"(~{format_angka_id(batas_kwh_bulanan, 2)} kWh/bulan, setara 720 jam nyala). "
                 "Kemungkinan mesin meteran Anda bermasalah — harap segera "
                 "hubungi PLN 123 untuk menghindari hal-hal yang tidak "
                 "diinginkan."
@@ -221,15 +222,15 @@ def evaluasi_anomali_prabayar(token_terpakai_aktual: float,
     if status == "anomali":
         pesan = (
             f"Anomali terindikasi — konsumsi aktual "
-            f"{token_terpakai_aktual} kWh vs estimasi dari perangkat "
-            f"{estimasi_terpakai_perangkat} kWh dalam {hari_berjalan} hari "
-            f"(selisih {hasil['selisih_pct']}%, ambang batas "
+            f"{format_angka_id(token_terpakai_aktual, 2)} kWh vs estimasi dari perangkat "
+            f"{format_angka_id(estimasi_terpakai_perangkat, 2)} kWh dalam {hari_berjalan} hari "
+            f"(selisih {format_angka_id(hasil['selisih_pct'], 1)}%, ambang batas "
             f"{round(BATAS_TOLERANSI_ANOMALI * 100)}%). Kemungkinan ada "
             "kebocoran arus atau perangkat yang belum diinput."
         )
     else:
         pesan = (
-            f"Konsumsi wajar (selisih {hasil['selisih_pct']}% dari "
+            f"Konsumsi wajar (selisih {format_angka_id(hasil['selisih_pct'], 1)}% dari "
             f"estimasi perangkat, dalam {hari_berjalan} hari)."
         )
 

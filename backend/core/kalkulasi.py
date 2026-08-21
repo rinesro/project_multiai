@@ -15,7 +15,7 @@ Prinsip pemakaian:
     - Layer 2 dan Layer 3 TIDAK menghitung ulang dari nol — mereka
       menerima hasil Lapis 1 sebagai input, atau memanggil fungsi yang
       SAMA dari modul ini kalau memang butuh menghitung skenario baru
-      yang belum pernah dihitung Lapis 1 (mis. simulasi brute force).
+      yang belum pernah dihitung Lapis 1 (mis. simulasi greedy).
 
 CATATAN PEMISAHAN — deteksi anomali:
     Fungsi deteksi_anomali() dan konstanta BATAS_TOLERANSI_ANOMALI

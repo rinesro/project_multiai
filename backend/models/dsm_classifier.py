@@ -4,7 +4,7 @@ models/dsm_classifier.py
 Pembungkus LightGBM untuk klasifikasi DSM peralatan listrik.
 
 Label DSM (2 kelas):
-    Fleksibel       — daya/durasi bisa dikurangi → masuk brute force
+    Fleksibel       — daya/durasi bisa dikurangi → masuk greedy optimizer
     Tidak Fleksibel — harus menyala saat dibutuhkan → skip optimizer
 
 Input per peralatan:

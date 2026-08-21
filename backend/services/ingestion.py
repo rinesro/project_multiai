@@ -16,7 +16,7 @@ hanya orkestrasi kalkulasi.
 Semua kalkulasi yang BISA dihitung dari data yang tersedia di sini
 (kWh per alat, total kWh, IKE, kWh per penghuni, tagihan, emisi)
 dihitung SEKALI di kelas ini. Layer 2 (fuzzy IKE, DSM classifier)
-dan Layer 3 (brute force) menerima hasilnya lewat 'payload' dan
+dan Layer 3 (greedy) menerima hasilnya lewat 'payload' dan
 'alat_valid', tidak menghitung ulang dari nol.
 """
 

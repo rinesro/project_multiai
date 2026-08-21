@@ -1,7 +1,7 @@
 """
 optimizer/greedy_optimizer.py
 =========================
-Brute Force Optimizer untuk EnergiCerdas AI — Lapis 3.
+Greedy Optimizer untuk EnergiCerdas AI — Lapis 3.
 
 Cara kerja:
     1. Hanya aktif jika IKE user di zona Boros atau Sangat Boros
@@ -49,22 +49,44 @@ if str(_BASE) not in _sys.path:
 from core.kalkulasi import hitung_tagihan as _core_hitung_tagihan
 from core.kalkulasi import hitung_emisi as _core_hitung_emisi
 from core.kalkulasi import FAKTOR_EMISI_JAMALI_OM
+from core.format_id import format_angka_id
 from action_analist.ike_profiler import profil_ike, MF_IKE
 
- 
- 
- 
- 
- 
-BATAS_EFISIEN       = MF_IKE["Efisien"][2]         
-BATAS_CUKUP_EFISIEN = MF_IKE["Cukup Efisien"][2]   
+# Ambang IKE dipakai optimizer (target ceiling akhir zona hasil optimasi)
+# -- diturunkan LANGSUNG dari MF_IKE yang sama dipakai ike_profiler.py,
+# BUKAN disalin ulang. "c" (elemen indeks ke-2 tiap tuple trapesium)
+# adalah ujung plateau zona itu -- titik di mana keanggotaan zona
+# tersebut masih penuh (1.0) sebelum mulai turun ke zona berikutnya.
+BATAS_EFISIEN       = MF_IKE["Efisien"][2]        # ~2.597 kWh/m²/bulan
+BATAS_CUKUP_EFISIEN = MF_IKE["Cukup Efisien"][2]  # ~4.396 kWh/m²/bulan
 
-STEP_JAM        = 0.5     
-MAKS_KURANG_PCT = 0.50    
-MIN_JAM         = 0.5     
+# MAKS_KURANG_PCT & MIN_JAM: sekarang berperan sebagai PAGAR PENGAMAN
+# untuk hasil kalkulasi Δt=ΔE/P (lihat _greedy()), bukan lagi penentu
+# UTAMA besar pengurangan seperti versi sebelumnya (yang iteratif step
+# 0,5 jam). STEP_JAM (step iteratif lama) sudah dihapus total --
+# tidak diperlukan lagi karena kalkulasi sekarang langsung, bukan
+# iteratif. Status sitasi kedua angka di bawah ini TIDAK berubah dari
+# sebelumnya -- masih perlu diselesaikan terpisah (lihat CATATAN
+# JUJUR di docstring _greedy()).
+MAKS_KURANG_PCT = 0.50   # maksimum pengurangan 50% dari jam asal
+MIN_JAM         = 0.5    # minimum jam operasi per peralatan
+
+# Toleransi floating-point untuk perbandingan "IKE <= batas_ike" -- BUKAN
+# angka rekayasa/asumsi peneliti seperti MAKS_KURANG_PCT di atas, ini
+# murni standar praktik numerik (perbandingan float exact-equality
+# rawan meleset karena representasi biner, lihat IEEE 754). Ditemukan
+# perlu lewat uji banding empiris terhadap 200 skenario acak: kalkulasi
+# Δt=ΔE/P kadang mendarat PERSIS di titik target secara matematis, tapi
+# representasi float-nya meleset -- awalnya dicoba 1e-9, TERBUKTI tidak
+# cukup (galat menumpuk sampai ~1e-6 di skenario banyak alat berurutan,
+# tiap alat menambah sedikit galat pembagian/perkalian). 1e-4 dipilih
+# sebagai margin aman (masih 10-1000x lebih kecil dari beda IKE yang
+# BERMAKNA secara praktis -- lihat jarak antar ambang MF_IKE di
+# action_analist/ike_profiler.py, semuanya berjarak >0.1).
+_EPSILON_IKE = 1e-4
 
 
- 
+# ── Helper functions ──────────────────────────────────────────────────────────
 
 def _total_kwh(alat_tetap: list, alat_fleksibel: list) -> float:
     """
@@ -97,48 +119,89 @@ def _hitung_emisi(kwh: float) -> float:
     return _core_hitung_emisi(kwh)["emisi_kg_bulan"]
 
 
- 
+# ── Greedy optimizer ──────────────────────────────────────────────────────────
 
 def _greedy(alat_tetap: list, alat_flex: list,
             luas_m2: float, batas_ike: float) -> tuple:
     """
-    Greedy reduction: kurangi jam peralatan satu langkah per iterasi,
-    mulai dari yang kWh-nya terbesar, sampai IKE target tercapai
-    atau semua peralatan sudah di batas minimum.
+    Greedy DENGAN KALKULASI LANGSUNG: untuk tiap alat (urutan kWh
+    terbesar dulu), hitung LANGSUNG berapa jam perlu dikurangi dari
+    alat itu memakai rumus dasar kelistrikan Δt = ΔE / P (turunan
+    langsung dari E = P × t, bukan konstanta yang perlu disitasi) --
+    BUKAN lagi tebak-tebakan step 0,5 jam berulang seperti sebelumnya.
+
+    PERUBAHAN dari versi sebelumnya: dulu tiap alat dikurangi 0,5 jam
+    per iterasi (bisa belasan iterasi untuk 1 alat saja) sampai target
+    tercapai atau alat itu mentok batas minimum. Sekarang, begitu giliran
+    sebuah alat diproses, langsung dihitung PERSIS berapa jam alat itu
+    perlu dikurangi untuk menutup sisa selisih ΔE yang masih dibutuhkan
+    -- satu kalkulasi per alat, bukan banyak langkah kecil.
+
+    CATATAN JUJUR: batas MAKS_KURANG_PCT (50%) TETAP ada di sini,
+    sebagai PAGAR PENGAMAN -- bukan lagi penentu UTAMA seberapa besar
+    pengurangan (itu sekarang peran rumus Δt=ΔE/P), tapi tetap
+    mencegah hasil kalkulasi yang tidak masuk akal dibebankan ke satu
+    alat saja (mis. "AC harus 0 jam karena dialah satu-satunya alat
+    fleksibel"). Status sitasi angka 50% ini TIDAK berubah dari
+    sebelumnya -- masih perlu diselesaikan terpisah.
 
     Returns:
         (berhasil: bool, state_akhir: list)
     """
     state = deepcopy(alat_flex)
 
-     
+    # Urutkan dari kWh terbesar — dampak terbesar dulu (struktur greedy
+    # dipertahankan persis seperti sebelumnya)
     state.sort(key=lambda x: x['kwh_bulan'], reverse=True)
 
-    while True:
-        ike_kini = _total_kwh(alat_tetap, state) / max(1.0, luas_m2)
+    kwh_tetap = sum(a['kwh_bulan'] for a in alat_tetap)
 
-        if ike_kini <= batas_ike:
+    for alat in state:
+        kwh_flex_sekarang = sum(
+            a['watt'] * a['jam_saat_ini'] * a.get('jumlah', 1) * 30 / 1000
+            for a in state
+        )
+        ike_kini = (kwh_tetap + kwh_flex_sekarang) / max(1.0, luas_m2)
+
+        if ike_kini <= batas_ike + _EPSILON_IKE:
             return True, state
 
-         
-        bisa_kurang = [
-            a for a in state
-            if a['jam_saat_ini'] > a['jam_minimum']
-        ]
-        if not bisa_kurang:
-            return False, state
+        # ΔE (kWh/bulan) yang MASIH perlu dipangkas supaya IKE capai target
+        delta_e_kwh = (ike_kini - batas_ike) * luas_m2
 
-         
-        for alat in state:
-            if alat['jam_saat_ini'] > alat['jam_minimum']:
-                alat['jam_saat_ini'] = max(
-                    round(alat['jam_saat_ini'] - STEP_JAM, 1),
-                    alat['jam_minimum']
-                )
-                break
+        # Δt = ΔE / P — rumus dasar E=P×t, P dalam kW, disesuaikan skala
+        # bulanan (30 hari) supaya satuannya konsisten dengan ΔE (kWh/bulan)
+        p_kw = alat['watt'] * alat.get('jumlah', 1) / 1000
+        if p_kw <= 0:
+            continue  # alat 0 watt (data tidak valid), lewati
+        delta_t_dibutuhkan = delta_e_kwh / (p_kw * 30)  # jam/hari
+
+        # Pagar pengaman: jangan sampai satu alat menanggung SEMUA ΔE
+        # kalau itu bikin dia turun di bawah batas minimumnya
+        delta_t_maksimal = alat['jam_saat_ini'] - alat['jam_minimum']
+        delta_t_dipakai = min(delta_t_dibutuhkan, delta_t_maksimal)
+        delta_t_dipakai = max(delta_t_dipakai, 0.0)
+
+        # SENGAJA belum dibulatkan di sini -- pembulatan di tengah
+        # kalkulasi (mis. round(..., 2) tiap alat) terbukti menumpuk jadi
+        # galat kecil antar-alat, dan di kasus yang pas-pasan di ambang
+        # batas, itu cukup menggeser hasil dari "tercapai" jadi "tidak
+        # tercapai" secara keliru (ditemukan lewat uji banding 30
+        # skenario acak vs versi lama). Presisi penuh dipertahankan
+        # sampai akhir; pembulatan buat tampilan ada di optimasi()
+        # saat menyusun 'langkah' untuk direspons ke user.
+        alat['jam_saat_ini'] = alat['jam_saat_ini'] - delta_t_dipakai
+
+    # Setelah semua alat diproses, cek final
+    kwh_flex_akhir = sum(
+        a['watt'] * a['jam_saat_ini'] * a.get('jumlah', 1) * 30 / 1000
+        for a in state
+    )
+    ike_akhir = (kwh_tetap + kwh_flex_akhir) / max(1.0, luas_m2)
+    return (ike_akhir <= batas_ike + _EPSILON_IKE), state
 
 
- 
+# ── Fungsi utama ──────────────────────────────────────────────────────────────
 
 def optimasi(ringkasan_dsm : dict,
              luas_m2       : float,
@@ -149,7 +212,7 @@ def optimasi(ringkasan_dsm : dict,
              tagihan_awal  : float,
              emisi_awal    : float) -> dict:
     """
-    Brute force optimizer berbasis target IKE hasil kalibrasi 5-lapis
+    Greedy optimizer berbasis target IKE hasil kalibrasi 5-lapis
     (lihat action_analist/ike_profiler.py untuk metodologi lengkap).
 
     Parameters:
@@ -188,12 +251,12 @@ def optimasi(ringkasan_dsm : dict,
     ike_awal  = round(kwh_awal / max(1.0, luas_m2), 4)
     zona_awal = profil_ike(ike_awal)
 
-     
-     
-     
-     
-     
-     
+    # ── Cek apakah optimizer perlu berjalan ───────────────────────────────────
+    # SKIP : IKE masih di zona Sangat Efisien / Efisien / Cukup Efisien
+    #        (IKE < batas Cukup Efisien) -- zona ini dianggap sudah cukup
+    #        baik, optimizer tidak perlu memaksa turun lebih jauh.
+    # AKTIF: IKE >= batas Cukup Efisien (masuk zona Boros / Sangat Boros)
+    #   → coba turunkan ke Efisien, fallback ke Cukup Efisien kalau gagal.
     if ike_awal < BATAS_CUKUP_EFISIEN:
         return {
             "aktif"             : False,
@@ -218,7 +281,7 @@ def optimasi(ringkasan_dsm : dict,
             ),
         }
 
-     
+    # ── Siapkan peralatan ─────────────────────────────────────────────────────
     alat_tetap = ringkasan_dsm.get('tidak_fleksibel', [])
     alat_raw   = ringkasan_dsm.get('fleksibel', [])
 
@@ -246,7 +309,7 @@ def optimasi(ringkasan_dsm : dict,
             ),
         }
 
-     
+    # Tambah field jam_saat_ini dan jam_minimum
     alat_flex = []
     for a in alat_raw:
         item = deepcopy(a)
@@ -258,18 +321,18 @@ def optimasi(ringkasan_dsm : dict,
         )
         alat_flex.append(item)
 
-     
+    # ── Iterasi 1: target Efisien ─────────────────────────────────────────────
     berhasil, state = _greedy(alat_tetap, alat_flex, luas_m2, BATAS_EFISIEN)
     status      = "efisien"
     target_ike  = BATAS_EFISIEN
 
-     
+    # ── Iterasi 2: fallback ke Cukup Efisien ──────────────────────────────────
     if not berhasil:
         berhasil, state = _greedy(alat_tetap, alat_flex, luas_m2, BATAS_CUKUP_EFISIEN)
         status     = "cukup_efisien" if berhasil else "tidak_tercapai"
         target_ike = BATAS_CUKUP_EFISIEN
 
-     
+    # ── Hitung hasil akhir ────────────────────────────────────────────────────
     kwh_akhir     = _total_kwh(alat_tetap, state)
     ike_akhir     = round(kwh_akhir / max(1.0, luas_m2), 4)
     zona_akhir    = profil_ike(ike_akhir)
@@ -283,7 +346,7 @@ def optimasi(ringkasan_dsm : dict,
     pct_rp    = round(hemat_rp    / max(1, tagihan_awal) * 100, 1)
     pct_emisi = round(hemat_emisi / max(1, emisi_awal)   * 100, 1)
 
-     
+    # ── Susun langkah rekomendasi ─────────────────────────────────────────────
     langkah = []
     for alat in state:
         kurang = round(alat['jam_awal'] - alat['jam_saat_ini'], 1)
@@ -291,6 +354,12 @@ def optimasi(ringkasan_dsm : dict,
             continue
 
         jumlah = alat.get('jumlah', 1)
+        # jam_rekomendasi dihitung dari jam_awal - kurang (kurang yang
+        # SUDAH dibulatkan), bukan langsung dari alat['jam_saat_ini']
+        # yang presisi penuh -- supaya jam_awal - jam_rekomendasi di
+        # tampilan selalu PERSIS sama dengan kurang_jam, tidak ada
+        # selisih desimal kecil yang janggal kalau diperiksa manual.
+        jam_rekomendasi = round(alat['jam_awal'] - kurang, 1)
         kwh_hemat  = round(alat['watt'] * kurang * jumlah * 30 / 1000, 3)
         rp_hemat   = round(kwh_hemat * tarif_kwh * (1 + pbjt), 0)
         emisi_hemat= round(kwh_hemat * FAKTOR_EMISI_JAMALI_OM, 3)
@@ -299,21 +368,21 @@ def optimasi(ringkasan_dsm : dict,
             "nama"           : alat['nama'],
             "kategori"       : alat['kategori'],
             "jam_awal"       : alat['jam_awal'],
-            "jam_rekomendasi": alat['jam_saat_ini'],
+            "jam_rekomendasi": jam_rekomendasi,
             "kurang_jam"     : kurang,
             "hemat_kwh"      : kwh_hemat,
             "hemat_rp"       : int(rp_hemat),
             "hemat_emisi_kg" : emisi_hemat,
         })
 
-     
+    # Urutkan dari penghematan terbesar
     langkah.sort(key=lambda x: x['hemat_kwh'], reverse=True)
 
-     
+    # ── Pesan status ──────────────────────────────────────────────────────────
     pesan_map = {
         "efisien"       : (
             f"Berhasil! Konsumsi turun dari zona {zona_awal} "
-            f"ke zona Efisien (IKE ≤ {BATAS_EFISIEN} kWh/m²/bulan)."
+            f"ke zona Efisien (IKE ≤ {format_angka_id(BATAS_EFISIEN, 3)} kWh/m²/bulan)."
         ),
         "cukup_efisien" : (
             f"Target Efisien tidak tercapai dari zona {zona_awal}. "

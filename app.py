@@ -120,7 +120,7 @@ with st.sidebar:
     st.caption(
         "Model DSM: LightGBM\n"
         "Profil IKE: Klasifikasi Fuzzy (kalibrasi 5-lapis)\n"
-        "Optimizer: Brute Force IKE\n"
+        "Optimizer: Greedy IKE\n"
         "Gen AI: Gemini 2.5 Flash"
     )
 
@@ -398,7 +398,7 @@ if st.button("🚀 Mulai Analisis", type="primary", use_container_width=True):
         hasil_dsm  = dsm_clf.prediksi_batch(payload['alat_valid'])
         ringkasan  = dsm_clf.ringkasan_dsm(hasil_dsm)
 
-    with st.spinner("⚡ Lapis 3 — Optimasi jadwal penggunaan (Brute Force IKE)..."):
+    with st.spinner("⚡ Lapis 3 Optimasi jadwal penggunaan (Greedy IKE)..."):
          
         hasil_opt = optimasi(
             ringkasan_dsm = ringkasan,

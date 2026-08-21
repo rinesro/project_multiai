@@ -5,7 +5,7 @@ FastAPI backend untuk EnergiCerdas AI — dipakai frontend Next.js
 (Vercel). Deploy target: Vercel (Python serverless function).
 
 Orkestrasi Lapis 1 (kalkulasi & anomali) → Lapis 2 (fuzzy IKE + DSM
-classifier) → Lapis 3 (brute force optimizer) → narasi Gemini,
+classifier) → Lapis 3 (greedy optimizer) → narasi Gemini,
 memakai modul yang SAMA dengan app.py Streamlit (core/, services/,
 models/, optimizer/, action_analist/) — tidak ada logika yang ditulis ulang.
 """
@@ -148,7 +148,7 @@ def post_analisis(req: AnalisisRequest):
     """
     Endpoint utama — setara tombol "🚀 Mulai Analisis" di app.py
     Streamlit. Menjalankan Lapis 1 (kalkulasi + anomali) → Lapis 2
-    (fuzzy IKE + DSM classifier) → Lapis 3 (brute force optimizer) →
+    (fuzzy IKE + DSM classifier) → Lapis 3 ( greedy optimizer) →
     narasi Gemini, lalu mengembalikan semuanya sebagai satu response.
 
     Validasi konsistensi is_prabayar vs tagihan_asli/token_context
