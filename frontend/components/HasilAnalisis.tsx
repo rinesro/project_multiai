@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Panel, DividerLabel } from "./ui";
 import { RekomendasiPerangkat } from "./RekomendasiPerangkat";
-import { formatKwh, formatRupiah, formatTanggalIndo, formatWatt } from "@/lib/format";
+import { formatAngka, formatKg, formatKwh, formatRupiah, formatTanggalIndo, formatWatt } from "@/lib/format";
 import type { AnalisisResponse, FokusOptimasi, StatusAnomali } from "@/lib/types";
 
 const STATUS_STYLE: Record<
@@ -171,8 +171,8 @@ export function HasilAnalisis({
             <p className="mt-4 text-xs leading-relaxed text-cream-dim/70">
               ⚠️{" "}
               {hasil.is_prabayar
-                ? "Estimasi nilai konsumsi ini bersifat prediktif — dihitung dari tarif resmi PLN dan spesifikasi/durasi pakai peralatan yang Anda masukkan, bukan dari pembacaan meteran langsung. Nominal aktual bisa berbeda dari saldo token sesungguhnya, dan estimasi ini belum memperhitungkan biaya admin pembelian token (besarannya tergantung channel pembayaran yang Anda gunakan)."
-                : "Estimasi tagihan ini bersifat prediktif — dihitung dari tarif resmi PLN dan spesifikasi/durasi pakai peralatan yang Anda masukkan, bukan dari pembacaan meteran langsung. Nominal aktual di rekening/struk bisa berbeda, dan estimasi ini belum memperhitungkan biaya admin (besarannya tergantung channel pembayaran yang Anda gunakan)."}
+                ? "Estimasi nilai konsumsi ini bersifat prediktif dihitung dari tarif resmi PLN dan spesifikasi/durasi pakai peralatan yang Anda masukkan, bukan dari pembacaan meteran langsung. Nominal aktual bisa berbeda dari saldo token sesungguhnya, dan estimasi ini belum memperhitungkan biaya admin pembelian token (besarannya tergantung channel pembayaran yang Anda gunakan)."
+                : "Estimasi tagihan ini bersifat prediktif dihitung dari tarif resmi PLN dan spesifikasi/durasi pakai peralatan yang Anda masukkan, bukan dari pembacaan meteran langsung. Nominal aktual di rekening/struk bisa berbeda, dan estimasi ini belum memperhitungkan biaya admin (besarannya tergantung channel pembayaran yang Anda gunakan)."}
             </p>
           </Expandable>
 
@@ -181,14 +181,14 @@ export function HasilAnalisis({
           <Panel className="bg-panel-texture text-center">
             <p className="text-xs uppercase tracking-widest text-cream-dim">Total Konsumsi Bulanan</p>
             <p className="digit-glow mt-2 font-mono text-5xl font-semibold text-amber sm:text-6xl">
-              {hasil.total_kwh}
+              {formatAngka(hasil.total_kwh, 2)}
               <span className="ml-2 text-2xl text-amber-dim sm:text-3xl">kWh</span>
             </p>
             <p className="mt-2 font-mono text-sm text-cream-dim">
               Tingkat efisiensi listrik: <span className="text-cream">{hasil.label_ike}</span>
             </p>
             <p className="mt-1 text-xs text-cream-dim/60">
-              berdasarkan kalibrasi IKE 5-lapis — {hasil.ike.toFixed(2)} kWh/m²/bulan
+              berdasarkan kalibrasi IKE 5 lapis ({hasil.ike.toFixed(2)}) kWh/m²/bulan
             </p>
           </Panel>
 
@@ -236,7 +236,7 @@ export function HasilAnalisis({
             );
             if (tampilLingkungan) {
               kartu.push(
-                <MetricCard key="emisi" label="Emisi CO₂" value={`${hasil.emisi_sebelum.emisi_kg_bulan} kg/bln`} />
+                <MetricCard key="emisi" label="Emisi CO₂" value={`${formatKg(hasil.emisi_sebelum.emisi_kg_bulan)}/bln`} />
               );
             }
             const gridClass =
@@ -261,12 +261,12 @@ export function HasilAnalisis({
             <div className="space-y-1.5 text-xs leading-relaxed text-cream-dim/70">
               <p>
                 <span className="text-teal">● Fleksibel</span>: alat yang durasi/jam pemakaiannya bisa
-                dikurangi tanpa mengganggu kebutuhan pokok (mis. AC, mesin cuci) — cara hemat: kurangi
+                dikurangi tanpa mengganggu kebutuhan pokok (mis. AC, mesin cuci), cara hemat: kurangi
                 jam pakainya.
               </p>
               <p>
                 <span className="text-red">● Tidak Fleksibel</span>: alat yang harus menyala sesuai
-                kebutuhan dan sulit dikurangi durasinya (mis. kulkas, router) — cara hemat: ganti
+                kebutuhan dan sulit dikurangi durasinya (mis. kulkas, router), cara hemat: ganti
                 dengan model yang lebih hemat energi, bukan mengurangi jam pakainya.
               </p>
             </div>

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Panel, SectionLabel, Field, Input, Select, Button, Modal } from "./ui";
-import { formatKwh } from "@/lib/format";
+import { formatAngka, formatKwh } from "@/lib/format";
 import { KATEGORI_ALAT, type PeralatanInput } from "@/lib/types";
 
 function hitungWatt(tegangan: number, arus: number) {
@@ -14,7 +14,7 @@ function hitungKwhBulan(watt: number, jam: number, jumlah: number) {
 
 /** Batasi durasi nyala ke rentang wajar [0, 24] — sehari cuma 24 jam.
  * Angka di bawah 0 dibulatkan ke 0, di atas 24 dibulatkan ke 24, supaya
- * user tidak perlu menebak kenapa input "ditolak" nilainya cuma
+ * user tidak perlu menebak kenapa input "ditolak" — nilainya cuma
  * disesuaikan ke batas terdekat secara langsung. */
 function clampJam(v: number): number {
   if (Number.isNaN(v)) return 0;
@@ -52,10 +52,10 @@ export function PeralatanSection({
       setError("Tegangan dan arus harus lebih dari 0.");
       return;
     }
-     
-     
-     
-     
+    // clampJam() di input sudah mencegah nilai di luar [0, 24] — jadi
+    // satu-satunya kondisi tersisa yang perlu ditolak di sini adalah
+    // tepat 0 (alat yang "tidak pernah dipakai" tidak masuk akal untuk
+    // dianalisis). Pesan spesifik supaya user tahu persis kenapa ditolak.
     if (form.jam <= 0) {
       setError("harap cantumkan perangkat yang digunakan (daya nyala>0)");
       return;
@@ -63,9 +63,9 @@ export function PeralatanSection({
     setError(null);
     onChange([...daftarAlat, form]);
     setForm(KOSONG);
-     
-     
-     
+    // Tutup modal otomatis — ini konfirmasi visual paling jelas bahwa
+    // penambahan berhasil. Kalau mau tambah alat lagi, tombol "+ Tambah
+    // Alat" masih gampang dijangkau, tidak perlu modal tetap terbuka.
     setModalOpen(false);
   }
 
@@ -84,7 +84,7 @@ export function PeralatanSection({
         <SectionLabel
           nomor="04"
           title="Inventarisasi Peralatan Listrik"
-          desc="Daya dihitung otomatis."
+          desc="Daya dihitung otomatis dari tegangan × arus."
         />
         <Button type="button" onClick={() => setModalOpen(true)} className="shrink-0">
           + Tambah Alat
@@ -111,8 +111,8 @@ export function PeralatanSection({
                     <span className="font-sans font-normal text-cream-dim">({a.kategori})</span>
                   </p>
                   <p className="text-xs text-cream-dim">
-                    {a.tegangan}V × {a.arus}A = {watt.toLocaleString("id-ID")} W/unit
-                    {a.jumlah > 1 ? ` × ${a.jumlah}` : ""} · {a.jam} jam/hari
+                    {formatAngka(a.tegangan, 0)}V × {formatAngka(a.arus, 3)}A = {watt.toLocaleString("id-ID")} W/unit
+                    {a.jumlah > 1 ? ` × ${a.jumlah}` : ""} · {formatAngka(a.jam, 1)} jam/hari
                   </p>
                 </div>
                 <div className="flex items-center gap-4">
