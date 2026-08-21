@@ -47,7 +47,7 @@ from core.kalkulasi import (
 )
 from action_analist.ike_profiler import profil_ike
 from models.dsm_classifier import DSMClassifier
-from optimizer.brute_force import optimasi
+from optimizer.greedy_optimizer import optimasi
 from services.ingestion import DataIngestionValidatorAgent
 from services.narasi import generate_gemini_narasi
 
