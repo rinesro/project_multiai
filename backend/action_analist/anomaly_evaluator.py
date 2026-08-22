@@ -113,7 +113,7 @@ def evaluasi_anomali_pascabayar(tagihan_asli: float,
 
     if status == "anomali":
         pesan = (
-            f"Anomali terindikasi — selisih estimasi vs tagihan asli "
+            f"Anomali terindikasi, selisih estimasi vs tagihan asli "
             f"{format_angka_id(hasil['selisih_pct'], 1)}% (ambang batas "
             f"{round(BATAS_TOLERANSI_ANOMALI * 100)}%). Kemungkinan ada "
             "perangkat yang belum diinput atau indikasi kebocoran arus."
@@ -221,7 +221,7 @@ def evaluasi_anomali_prabayar(token_terpakai_aktual: float,
 
     if status == "anomali":
         pesan = (
-            f"Anomali terindikasi — konsumsi aktual "
+            f"Anomali terindikasi, konsumsi aktual "
             f"{format_angka_id(token_terpakai_aktual, 2)} kWh vs estimasi dari perangkat "
             f"{format_angka_id(estimasi_terpakai_perangkat, 2)} kWh dalam {hari_berjalan} hari "
             f"(selisih {format_angka_id(hasil['selisih_pct'], 1)}%, ambang batas "

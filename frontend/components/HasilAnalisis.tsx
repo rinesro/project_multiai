@@ -192,7 +192,7 @@ export function HasilAnalisis({
             </p>
           </Panel>
 
-          {/* 4. Panel Narasi + saran — narasi menjelaskan angka di atas &
+          {/* 4. Panel Narasi + saran, narasi menjelaskan angka di atas &
               bawahnya. Saran (ganti/kurangi) cuma muncul kalau zona
               Cukup Efisien+ DAN memang ada sesuatu untuk disarankan. */}
           <Panel className="border-amber-dim/40">
@@ -217,7 +217,7 @@ export function HasilAnalisis({
             )}
           </Panel>
 
-          {/* 5. Kartu metrik utama — sama seperti sebelumnya. Kartu hasil
+          {/* 5. Kartu metrik utama sama seperti sebelumnya. Kartu hasil
               greedy_optimizer (Hemat Biaya, Kurang Emisi, Emisi Setelah
               Optimasi) SUDAH DIHAPUS dari sini -- itu duplikasi persis
               dengan kotak "Estimasi Total Penghematan" yang sudah ada
@@ -253,7 +253,7 @@ export function HasilAnalisis({
                 <li key={i} className="flex items-center gap-2">
                   <span className={a.label_dsm === "Fleksibel" ? "text-teal" : "text-red"}>●</span>
                   <span className="text-cream">{a.nama}</span>
-                  <span className="text-cream-dim">— {a.label_dsm}</span>
+                  <span className="text-cream-dim"> ({a.label_dsm})</span>
                 </li>
               ))}
             </ul>
