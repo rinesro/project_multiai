@@ -188,7 +188,7 @@ export function HasilAnalisis({
               Tingkat efisiensi listrik: <span className="text-cream">{hasil.label_ike}</span>
             </p>
             <p className="mt-1 text-xs text-cream-dim/60">
-              berdasarkan kalibrasi IKE 5 lapis ({hasil.ike.toFixed(2)}) kWh/m²/bulan
+              berdasarkan kalibrasi IKE 5 lapis ({hasil.ike.toFixed(2)} kWh/m²/bulan)
             </p>
           </Panel>
 
