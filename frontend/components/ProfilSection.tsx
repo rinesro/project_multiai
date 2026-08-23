@@ -64,7 +64,7 @@ export function ProfilSection({
       {isPrabayar ? (
         <div>
           <p className="mb-4 text-sm text-cream-dim">
-            Data token dipakai untuk deteksi anomali — membandingkan konsumsi
+            Data token dipakai untuk deteksi anomali, membandingkan konsumsi
             aktual (selisih saldo token) dengan estimasi dari daftar peralatan.
           </p>
           <div className="grid gap-5 sm:grid-cols-2">
@@ -94,7 +94,7 @@ export function ProfilSection({
             </Field>
             <Field
               label="Nominal Token Dibeli (Rp)"
-              hint="Sesuai struk — bukan termasuk biaya admin bank/e-wallet"
+              hint="Sesuai struk, bukan termasuk biaya admin bank/e-wallet"
             >
               <Input
                 type="number"
@@ -136,7 +136,7 @@ export function ProfilSection({
           </div>
         </div>
       ) : (
-        <Field label="Tagihan Bulan Lalu (Rp)">
+        <Field label="Tagihan Bulan Lalu (Rp)" hint="Sesuai struk, bukan termasuk biaya admin bank/e-wallet">
           <Input
             type="number"
             min={50000}
